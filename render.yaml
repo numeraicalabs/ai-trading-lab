@@ -8,7 +8,6 @@ services:
   - type: web
     name: ai-trading-lab-api
     runtime: python
-    region: frankfurt
     plan: free
     rootDir: backend
     buildCommand: pip install -r requirements.txt
@@ -46,7 +45,6 @@ services:
   - type: web
     name: ai-trading-lab-ui
     runtime: static
-    region: frankfurt
     plan: free
     rootDir: frontend
     buildCommand: npm install && npm run build
