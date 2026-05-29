@@ -1,0 +1,69 @@
+/* ─── Global Reset & Base ─────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:      #0a0e17;
+  --surface: #111827;
+  --card:    #141c2e;
+  --border:  #1e2d47;
+  --accent:  #3b82f6;
+  --green:   #10b981;
+  --red:     #ef4444;
+  --yellow:  #f59e0b;
+  --purple:  #8b5cf6;
+  --cyan:    #06b6d4;
+  --text:    #e2e8f0;
+  --muted:   #64748b;
+  --dim:     #334155;
+  --font:    'IBM Plex Sans', 'Segoe UI', sans-serif;
+  --mono:    'JetBrains Mono', 'Fira Code', monospace;
+}
+
+html { font-size: 14px; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  -webkit-font-smoothing: antialiased;
+  min-height: 100vh;
+}
+
+/* ─── Scrollbar ──────────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 99px; }
+
+/* ─── Input ──────────────────────────────────────────────────────────────── */
+input, select, button { font-family: inherit; }
+input::placeholder { color: var(--muted); }
+button { cursor: pointer; }
+
+/* ─── Ticker tape animation ──────────────────────────────────────────────── */
+@keyframes ticker-scroll {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+.ticker-inner {
+  display: flex;
+  gap: 32px;
+  padding-left: 16px;
+  animation: ticker-scroll 30s linear infinite;
+  white-space: nowrap;
+  width: max-content;
+}
+.ticker-inner:hover { animation-play-state: paused; }
+
+/* ─── Fade-in ────────────────────────────────────────────────────────────── */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.fade-in { animation: fadeIn .25s ease forwards; }
+
+/* ─── Pulse dot ─────────────────────────────────────────────────────────── */
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: .4; }
+}
+.pulse { animation: pulse 2s ease-in-out infinite; }
