@@ -8,7 +8,6 @@ services:
   - type: web
     name: ai-trading-lab-api
     runtime: python
-    plan: free
     rootDir: backend
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
@@ -45,7 +44,6 @@ services:
   - type: web
     name: ai-trading-lab-ui
     runtime: static
-    plan: free
     rootDir: frontend
     buildCommand: npm install && npm run build
     staticPublishPath: dist
