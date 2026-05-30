@@ -237,7 +237,12 @@ export function OrderModal({ isOpen, onClose, prefill, agents = [], onExecuted }
     if (r && r.id) {
       setResult({ ...r, ok: true }); setStep('done'); onExecuted && onExecuted(r)
     } else {
-      setResult({ ok: false, error: (r && r.detail) || 'Trade failed' }); setStep('review')
+      // Handle structured rejection (409 OrderRejected)
+      const code   = r && r.code
+      const detail = r && (r.detail || r.error || 'Trade failed')
+      const icons  = { DUPLICATE:'🔁', FLIP:'🔄', CONFLICT:'⚡', SIZE_CAP:'📏' }
+      const icon   = icons[code] || '❌'
+      setResult({ ok: false, error: icon + ' ' + detail, code }); setStep('review')
     }
     setLoading(false)
   }

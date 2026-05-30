@@ -52,6 +52,7 @@ settings = Settings()
 
 # ── Service imports ───────────────────────────────────────────────────────────
 from services.agents       import (CATALOGUE, AGENT_STATE, AGENT_CONFIG,
+                                   _update_equity_history,
                                    get_all, get, set_horizon, recommended_for,
                                    run_cycle, ensemble_vote, update_config,
                                    get_impulses, get_live_impulses, get_regime)
@@ -59,7 +60,9 @@ from services.market       import get_ohlcv, add_indicators, get_live_quote, get
 from services.trainer      import train, get_meta
 from services.trainer_queue import (enqueue, list_jobs, get_job, queue_size,
                                     set_broadcast, worker_loop)
-from services.paper        import execute as paper_execute
+from services.paper        import (execute as paper_execute, OrderRejected,
+                                    get_positions, get_all_positions,
+                                    get_portfolio_exposure, opt_rebalance)
 from services.trainer      import (train, get_meta, list_models, verify_models)
 from services.backtest     import (run_backtest, run_multi_backtest,
                                     list_results, get_result)
@@ -131,6 +134,7 @@ def _tick_agents():
         d = random.gauss(0.0005, 0.002)
         agent["equity"] = round(agent["equity"] * (1 + d), 4)
         agent["perf"]   = round((agent["equity"] - 100) / 100 * 100, 2)
+        _update_equity_history(abbr)
         agent["reward"] = round(agent.get("reward", 300) + random.gauss(0.5, 2), 2)
         if random.random() < 0.025:
             sym   = random.choice(agent.get("assets", ["SPY"]))
@@ -443,6 +447,8 @@ async def api_execute(body: TradeIn):
     try:
         trade = paper_execute(body.agent_abbr.upper(), sym, body.side.upper(),
                               body.quantity, price, body.reason, body.confidence)
+    except OrderRejected as e:
+        raise HTTPException(409, {"code": e.code, "detail": e.reason})
     except ValueError as e:
         raise HTTPException(400, str(e))
     trade["source"]  = "manual"
@@ -785,6 +791,7 @@ async def api_agent_pdf(abbr: str):
 
     from services.trainer  import get_meta
     from services.backtest import get_result
+    from services.agents   import _gen_equity_series
     
     sym  = (agent.get("assets") or ["SPY"])[0]
     h    = agent.get("horizon", "swing")
@@ -792,6 +799,11 @@ async def api_agent_pdf(abbr: str):
     bt   = get_result(abbr_up, sym, h)
     # Use in-memory trades filtered by agent
     agent_trades = [t for t in trades if t.get("agent_abbr") == abbr_up][:30]
+    # Ensure equity_history is a valid list for the PDF chart
+    if not isinstance(agent.get("equity_history"), list) or not agent["equity_history"]:
+        agent["equity_history"] = _gen_equity_series(
+            float(agent.get("perf", 0)), 80, abbr_up
+        )
 
     try:
         loop    = asyncio.get_event_loop()
@@ -808,6 +820,36 @@ async def api_agent_pdf(abbr: str):
     except Exception as e:
         logger.error(f"PDF generation error [{abbr_up}]: {e}", exc_info=True)
         raise HTTPException(500, f"PDF error: {str(e)[:200]}")
+
+# ── Positions & portfolio exposure ───────────────────────────────────────────
+@app.get("/api/positions")
+def api_all_positions():
+    return get_all_positions()
+
+@app.get("/api/positions/{abbr}")
+def api_agent_positions(abbr: str):
+    return get_positions(abbr.upper())
+
+@app.get("/api/portfolio/exposure")
+def api_exposure():
+    return get_portfolio_exposure()
+
+@app.post("/api/portfolio/rebalance")
+async def api_rebalance():
+    """OPT master: compute rebalance suggestions based on current holdings."""
+    from services.agents import get as get_agent
+    opt = get_agent("OPT")
+    if not opt:
+        raise HTTPException(404, "OPT agent not found")
+    # Default target weights from OPT assets
+    target = {"SPY": 0.40, "GLD": 0.30, "TLT": 0.30}
+    suggestions = opt_rebalance(target, prices)
+    return {
+        "agent":       "OPT",
+        "suggestions": suggestions,
+        "exposure":    get_portfolio_exposure(),
+        "message":     f"{len(suggestions)} trades suggested to reach target allocation",
+    }
 
 # ── Opportunity Scanner ──────────────────────────────────────────────────────
 @app.get("/api/network/opportunities")

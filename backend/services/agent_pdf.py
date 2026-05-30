@@ -251,7 +251,13 @@ def generate_agent_pdf(agent: dict, meta: dict = None,
     alpha     = agent.get("alpha", 0.0)
     confidence= agent.get("confidence", 50)
     reward    = agent.get("reward", 0.0)
-    equity    = agent.get("equity", [])
+    # equity in AGENT_STATE is a float (current value).
+    # equity_history is the list of {i, v} points for the chart.
+    raw_equity = agent.get("equity", 100.0)
+    equity = agent.get("equity_history") or agent.get("equity") or []
+    # If equity is still a float (old format), convert to empty list
+    if not isinstance(equity, list):
+        equity = []
     horizon   = agent.get("horizon", "swing")
     assets    = agent.get("assets", [])
     pf        = agent.get("profit_factor", 1.0)

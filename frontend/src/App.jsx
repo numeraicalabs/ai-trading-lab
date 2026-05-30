@@ -477,18 +477,110 @@ function AnalyticsPage({ agents = [] }) {
 
 // ── Trades page ────────────────────────────────────────────────────────────────
 function TradesPage({ trades = [], onOrder }) {
+  const [positions, setPositions] = useState({})
+  const [exposure,  setExposure]  = useState({})
+  const [rebalSug,  setRebalSug]  = useState(null)
+
+  useEffect(() => {
+    api.allPositions().then(d => d && setPositions(d))
+    api.exposure().then(d => d && setExposure(d))
+  }, [trades.length])
+
+  const runRebalance = async () => {
+    const r = await api.rebalance()
+    if (r) setRebalSug(r)
+  }
+
+  const totalOpenPos = Object.values(positions).reduce((n, p) => n + Object.keys(p).length, 0)
+  const conflictSymbols = Object.entries(exposure)
+    .filter(([,e]) => e.long_agents?.length > 0 && e.short_agents?.length > 0)
+    .map(([sym]) => sym)
+
   return (
     <div>
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:20 }}>
         <div>
           <h1 style={{ fontSize:22, fontWeight:800, margin:0 }}>Paper Trades</h1>
-          <p style={{ color:C.muted, fontSize:12, margin:'4px 0 0' }}>Real prices · Slippage + fees · {trades.length} executions</p>
+          <p style={{ color:C.muted, fontSize:12, margin:'4px 0 0' }}>Real prices · Slippage + fees · {trades.length} executions · {totalOpenPos} open positions</p>
         </div>
-        <button onClick={onOrder} style={{ padding:'9px 18px', borderRadius:8, cursor:'pointer',
-          background:`${C.accent}22`, border:`1px solid ${C.accent}66`, color:C.accent, fontSize:12, fontWeight:700 }}>
-          ⚡ New Trade
-        </button>
+        <div style={{ display:'flex', gap:8 }}>
+          <button onClick={runRebalance} style={{ padding:'9px 14px', borderRadius:8, cursor:'pointer',
+            background:`${C.green}18`, border:`1px solid ${C.green}44`, color:C.green, fontSize:11, fontWeight:700 }}>
+            ⚖️ OPT Rebalance
+          </button>
+          <button onClick={onOrder} style={{ padding:'9px 18px', borderRadius:8, cursor:'pointer',
+            background:`${C.accent}22`, border:`1px solid ${C.accent}66`, color:C.accent, fontSize:12, fontWeight:700 }}>
+            ⚡ New Trade
+          </button>
+        </div>
       </div>
+
+      {/* Conflict warnings */}
+      {conflictSymbols.length > 0 && (
+        <div style={{ padding:'10px 16px', marginBottom:14, borderRadius:9,
+                      background:`${C.red}12`, border:`1px solid ${C.red}44` }}>
+          <span style={{ color:C.red, fontWeight:700, fontSize:12 }}>⚠️ Direction Conflicts: </span>
+          <span style={{ color:C.muted, fontSize:11 }}>
+            {conflictSymbols.join(', ')} — agents hold opposite directions on same symbol
+          </span>
+        </div>
+      )}
+
+      {/* Open positions grid */}
+      {totalOpenPos > 0 && (
+        <Card style={{ marginBottom:16 }}>
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12 }}>
+            <SectionTitle title="Open Positions" sub="Per-agent paper positions"/>
+          </div>
+          <div style={{ display:'flex', flexWrap:'wrap', gap:8 }}>
+            {Object.entries(positions).flatMap(([abbr, agentPos]) =>
+              Object.entries(agentPos).map(([sym, pos]) => {
+                const qty = pos.qty || 0
+                const avgC = pos.avg_cost || 0
+                return (
+                  <div key={abbr+sym} style={{ background:C.bg, borderRadius:9, padding:'10px 14px',
+                                               border:`1px solid ${C.border}`, minWidth:140 }}>
+                    <div style={{ display:'flex', justifyContent:'space-between', marginBottom:4 }}>
+                      <span style={{ fontSize:11, fontFamily:'monospace', fontWeight:700, color:C.text }}>{sym}</span>
+                      <span style={{ fontSize:9, color:C.muted, fontFamily:'monospace' }}>{abbr}</span>
+                    </div>
+                    <div style={{ fontSize:13, fontWeight:800, color:C.green, fontFamily:'monospace' }}>
+                      {qty.toFixed(4)}
+                    </div>
+                    <div style={{ fontSize:10, color:C.muted }}>avg ${avgC.toFixed(2)}</div>
+                  </div>
+                )
+              })
+            )}
+          </div>
+        </Card>
+      )}
+
+      {/* OPT rebalance suggestions */}
+      {rebalSug && rebalSug.suggestions?.length > 0 && (
+        <Card style={{ marginBottom:16, border:`1px solid ${C.green}44` }}>
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
+            <span style={{ fontSize:12, fontWeight:700, color:C.green }}>⚖️ OPT Rebalance Suggestions</span>
+            <button onClick={() => setRebalSug(null)}
+              style={{ background:'none', border:'none', color:C.muted, cursor:'pointer' }}>✕</button>
+          </div>
+          {rebalSug.suggestions.map((s, i) => (
+            <div key={i} style={{ display:'flex', gap:12, alignItems:'center', padding:'7px 0',
+                                  borderBottom:`1px solid ${C.border}22`, fontSize:11 }}>
+              <span style={{ color:s.side==='BUY'?C.green:C.red, fontFamily:'monospace', fontWeight:700, width:40 }}>{s.side}</span>
+              <span style={{ fontFamily:'monospace', color:C.text, fontWeight:700, width:60 }}>{s.symbol}</span>
+              <span style={{ color:C.muted }}>{s.quantity} shares</span>
+              <span style={{ color:C.muted, marginLeft:'auto' }}>target {(s.target_weight*100).toFixed(0)}%</span>
+              <button onClick={() => onOrder({ symbol:s.symbol, action:s.side, quantity:s.quantity,
+                                               agent_abbr:'OPT', reasoning:`OPT rebalance: target ${(s.target_weight*100).toFixed(0)}%` })}
+                style={{ padding:'3px 10px', borderRadius:6, cursor:'pointer', fontSize:10, fontWeight:700,
+                         background:`${s.side==='BUY'?C.green:C.red}22`,
+                         border:`1px solid ${s.side==='BUY'?C.green:C.red}44`,
+                         color:s.side==='BUY'?C.green:C.red }}>Execute</button>
+            </div>
+          ))}
+        </Card>
+      )}
       <Card>
         <SectionTitle title="Trade Log"/>
         <div style={{ overflowX:'auto' }}>

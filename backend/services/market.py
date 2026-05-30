@@ -182,7 +182,9 @@ def get_ohlcv(symbol: str, horizon: str = "swing") -> pd.DataFrame:
 
     # 2. yfinance (solo se non siamo in modalità synthetic e non già noto come bloccato)
     df = None
-    if not USE_SYNTHETIC and _yf_works is not False:
+    # Skip yfinance on production/Render — datacenter IPs are blocked by Yahoo Finance
+    _skip_yf = USE_SYNTHETIC or ENVIRONMENT == "production" or _yf_works is False
+    if not _skip_yf:
         df = _yf_download(symbol, horizon)
         if df is not None and len(df) >= 20:
             if _yf_works is None:

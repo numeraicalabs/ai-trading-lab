@@ -79,6 +79,11 @@ export const api = {
   listUploads:    ()          => get('/api/data/uploads'),
   // Multi-symbol training
   trainMulti:     (body)      => post('/api/train/multi', body),
+  // Positions & exposure
+  allPositions:   ()          => get('/api/positions'),
+  agentPositions: (a)         => get(`/api/positions/${a}`),
+  exposure:       ()          => get('/api/portfolio/exposure'),
+  rebalance:      ()          => post('/api/portfolio/rebalance', {}),
   // Network
   networkOpportunities: () => get('/api/network/opportunities'),
   networkCorrelation:   () => get('/api/network/correlation'),
