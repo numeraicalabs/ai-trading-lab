@@ -854,12 +854,20 @@ function HealthTab() {
   const [d, setD] = useState(null)
   const [loading, setLoading] = useState(true)
 
+  const [writeTest, setWriteTest] = useState(null)
+
   const load = async () => {
     setLoading(true)
     const [health, data] = await Promise.all([api.health(), api.healthData()])
     if (health) setH(health)
     if (data)   setD(data)
     setLoading(false)
+  }
+
+  const testWrite = async () => {
+    setWriteTest({ loading: true })
+    const r = await api.get('/api/health/supabase/test-write')
+    setWriteTest(r || { write_ok: false, error: 'No response' })
   }
   useEffect(() => { load() }, [])
 
@@ -901,6 +909,25 @@ function HealthTab() {
                  ok={h.supabase?.connected}
                  detail={h.supabase?.connected ? 'Connected' : (h.supabase?.error || 'not connected')}
                  note={h.supabase?.connected ? 'ok' : 'check env vars'}/>
+            {h.supabase?.connected && (
+              <div style={{ marginBottom:7 }}>
+                <button onClick={testWrite} style={{
+                  padding:'5px 12px', borderRadius:6, cursor:'pointer', fontSize:10, fontWeight:700,
+                  background:`${C.accent}18`, border:`1px solid ${C.accent}44`, color:C.accent,
+                }}>🔬 Test DB Write (INSERT)</button>
+                {writeTest && !writeTest.loading && (
+                  <div style={{ marginTop:5, padding:'7px 10px', borderRadius:6, fontSize:10,
+                    background: writeTest.write_ok ? `${C.green}15` : `${C.red}15`,
+                    border:`1px solid ${writeTest.write_ok ? C.green : C.red}44`,
+                    color: writeTest.write_ok ? C.green : C.red }}>
+                    {writeTest.write_ok ? '✅ ' + writeTest.message : '❌ ' + writeTest.error}
+                    {!writeTest.write_ok && writeTest.hint && (
+                      <div style={{ color:C.yellow, marginTop:3 }}>{writeTest.hint}</div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
             <Row label="Environment" ok={true} detail={h.environment} note=""/>
           </div>
 
