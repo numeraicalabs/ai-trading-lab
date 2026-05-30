@@ -18,6 +18,12 @@ import { OllamaChat }      from './components/OllamaChat'
 import { AiInsightsPanel } from './components/AiInsightsPanel'
 // Ecosystem page
 import EcosystemPage       from './pages/EcosystemPage'
+// Training Lab
+import TrainingLabPage     from './pages/TrainingLabPage'
+// Agent Learning Monitor
+import AgentLearningPage   from './pages/AgentLearningPage'
+// SCOUT Agent
+import ScoutPage           from './pages/ScoutPage'
 // Impulse flow (used in Network page)
 import { ImpulseFlow }     from './components/ImpulseFlow'
 // Hooks & data
@@ -34,6 +40,9 @@ const NAV = [
   { id:'analytics',  label:'Analytics',  icon:'📈' },
   { id:'trades',     label:'Trades',     icon:'📋' },
   { id:'chat',       label:'AI Chat',    icon:'💬' },
+  { id:'lab',        label:'Training Lab',icon:'🧪' },
+  { id:'learning',   label:'Learning',    icon:'📚' },
+  { id:'scout',      label:'SCOUT',       icon:'🔭' },
 ]
 
 // ── KPI strip ──────────────────────────────────────────────────────────────────
@@ -432,6 +441,7 @@ export default function App() {
   const [impulses,      setImpulses]      = useState([])
   const [liveImpulses,  setLiveImpulses]  = useState({})
   const [regime,        setRegime]        = useState({ label:'unknown', confidence:0 })
+  const [health,        setHealth]        = useState({ supabase:{ connected:false }, data_source:null })
 
   const { connected, lastTick, lastMessage } = useWebSocket()
   const { agents,    loading  }              = useAgents(lastTick)
@@ -443,9 +453,13 @@ export default function App() {
       api.prices().then(d => d && setPrices(d))
       api.trades(null, 60).then(d => d && setTrades(d))
     }
-    load()
-    const id = setInterval(load, 12000)
-    return () => clearInterval(id)
+    const loadHealth = () => {
+      fetch('/health').then(r=>r.json()).then(d => d && setHealth(d)).catch(()=>{})
+    }
+    load(); loadHealth()
+    const id  = setInterval(load, 12000)
+    const hid = setInterval(loadHealth, 30000)
+    return () => { clearInterval(id); clearInterval(hid) }
   }, [])
 
   // Merge live WS ticks
@@ -457,7 +471,7 @@ export default function App() {
     if (lastTick?.impulses?.length) {
       setImpulses(prev => [...lastTick.impulses, ...prev].slice(0, 200))
       const live = {}
-      lastTick.impulses.forEach(i => { live[`${i.from}→${i.to}`] = i })
+      lastTick.impulses.forEach(i => { live[`${i.from}->${i.to}`] = i })
       setLiveImpulses(prev => ({ ...prev, ...live }))
     }
   }, [lastTick])
@@ -475,6 +489,9 @@ export default function App() {
       case 'analytics':  return <AnalyticsPage agents={agents}/>
       case 'trades':     return <TradesPage trades={trades} onOrder={() => openOrder()}/>
       case 'chat':       return <ChatPage portfolio={portfolio} agents={agents} onOrderSuggested={openOrder}/>
+      case 'lab':        return <TrainingLabPage/>
+      case 'learning':   return <AgentLearningPage/>
+      case 'scout':      return <ScoutPage/>
       default:           return <Dashboard  portfolio={portfolio} trades={trades} onOrder={() => openOrder()}/>
     }
   }
@@ -482,7 +499,7 @@ export default function App() {
   return (
     <div style={{ minHeight:'100vh', background:C.bg, color:C.text,
                   fontFamily:"'IBM Plex Sans','Segoe UI',sans-serif" }}>
-      <TopBar page={page} onNav={handleNav} connected={connected} prices={prices} navItems={NAV}/>
+      <TopBar page={page} onNav={handleNav} connected={connected} prices={prices} navItems={NAV} health={health}/>
       <main style={{ padding:'24px', maxWidth:1440, margin:'0 auto' }}>
         {renderPage()}
       </main>

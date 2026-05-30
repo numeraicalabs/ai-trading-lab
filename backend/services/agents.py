@@ -33,14 +33,16 @@ CATALOGUE = {
             "color": "#ef4444", "icon": "📊", "best_horizons": ["scalping","day"],        "assets": ["SPY","QQQ"]},
     "REG": {"name": "Market Regime",       "strategy": "Regime Detection",       "type": "HMM + Clustering",
             "color": "#14b8a6", "icon": "🔍", "best_horizons": ["swing","position"],      "assets": ["SPY","TLT"]},
-    "OPT": {"name": "Portfolio Optimizer", "strategy": "Dynamic Allocation",     "type": "MVO + RL",
+    "OPT":   {"name": "Portfolio Optimizer", "strategy": "Dynamic Allocation",     "type": "MVO + RL",
             "color": "#10b981", "icon": "⚖️","best_horizons": ["swing","position"],      "assets": ["SPY","GLD","TLT"]},
+    "SCOUT": {"name": "Senior Trader Scout", "strategy": "Multi-Factor Screening",  "type": "AI Macro + Technical",
+              "color": "#f0abfc", "icon": "🔭","best_horizons": ["day","swing"],          "assets": ["SPY","AAPL","NVDA","GLD"]},
 }
 
-_PERF   = {"MOM":18.4,"MRV":12.1,"PPO":9.7,"DQN":7.3,"MAC":14.8,"SEN":11.2,"VOL":22.6,"REG":6.1,"OPT":16.3}
-_SHPS   = {"MOM":1.82,"MRV":2.11,"PPO":1.43,"DQN":1.21,"MAC":1.68,"SEN":1.55,"VOL":1.94,"REG":1.12,"OPT":2.28}
+_PERF   = {"MOM":18.4,"MRV":12.1,"PPO":9.7,"DQN":7.3,"MAC":14.8,"SEN":11.2,"VOL":22.6,"REG":6.1,"OPT":16.3,"SCOUT":21.7}
+_SHPS   = {"MOM":1.82,"MRV":2.11,"PPO":1.43,"DQN":1.21,"MAC":1.68,"SEN":1.55,"VOL":1.94,"REG":1.12,"OPT":2.28,"SCOUT":2.44}
 _STATES = {"MOM":"Live","MRV":"Live","PPO":"Training","DQN":"Backtest",
-           "MAC":"Live","SEN":"Live","VOL":"Live","REG":"Training","OPT":"Live"}
+           "MAC":"Live","SEN":"Live","VOL":"Live","REG":"Training","OPT":"Live","SCOUT":"Screening"}
 
 # ── User-editable config per agent ────────────────────────────────────────────
 AGENT_CONFIG: dict = {}  # abbr → config dict

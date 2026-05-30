@@ -140,7 +140,7 @@ export default function EcosystemPage({ lastMessage }) {
       setImpulses(prev => [...lastMessage.impulses, ...prev].slice(0, 100))
       if (lastMessage.impulses.length) {
         const live = {}
-        lastMessage.impulses.forEach(i => { live[`${i.from}→${i.to}`] = i })
+        lastMessage.impulses.forEach(i => { live[`${i.from}->${i.to}`] = i })
         setLiveImpulses(prev => ({ ...prev, ...live }))
       }
     }
@@ -305,13 +305,11 @@ export default function EcosystemPage({ lastMessage }) {
             </tr></thead>
             <tbody>
               {agents.length > 0
-                ? agents.map(a => <AgentRow key={a.abbr} agent={a} onTrain={trainAgent} onCommentary={getCommentary} busy={busy}/>)
+                ? agents.map(a => <AgentRow key={a.abbr} agent={a} onTrain={trainAgent} onCommentary={getCommentary} onConfig={setConfigAgent} busy={busy}/>)
                 : <tr><td colSpan={8} style={{ padding:24, textAlign:'center', color:C.muted }}><Spinner/></td></tr>}
             </tbody>
           </table>
         </div>
-      </Card>
-
       </Card>}
 
       {/* AgentConfigPanel drawer */}

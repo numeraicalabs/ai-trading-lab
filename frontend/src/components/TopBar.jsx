@@ -1,6 +1,6 @@
 import { C } from './UI'
 
-export function TopBar({ page, onNav, connected, prices, navItems = [] }) {
+export function TopBar({ page, onNav, connected, prices, navItems = [], health = null }) {
   const tickers = Object.entries(prices || {}).slice(0, 10)
 
   return (

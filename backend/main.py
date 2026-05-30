@@ -1,5 +1,5 @@
 """
-AI Trading Lab — FastAPI v5
+AI Trading Lab — FastAPI v7
 Single service: same process serves the REST API, WebSocket, and the React SPA.
   /health          → health check
   /api/*           → REST endpoints
@@ -60,6 +60,21 @@ from services.trainer      import train, get_meta
 from services.trainer_queue import (enqueue, list_jobs, get_job, queue_size,
                                     set_broadcast, worker_loop)
 from services.paper        import execute as paper_execute
+from services.trainer      import (train, get_meta, list_models, verify_models)
+from services.backtest     import (run_backtest, run_multi_backtest,
+                                    list_results, get_result)
+from services.universe     import (get_universe, get_symbols, add_symbol,
+                                    remove_symbol, list_sectors, symbols_for_agent,
+                                    parse_uploaded_csv, get_custom_ohlcv,
+                                    list_custom_uploads)
+from services.scheduler    import (scheduler_loop, get_history, get_all_history,
+                                    get_retrain_log, notify_regime_change,
+                                    AUTO_RETRAIN_ENABLED, MIN_ACCURACY, SCHEDULER_INTERVAL)
+from services.scout        import (run_screen, get_cached_screen, scout_loop, SCREEN_UNIVERSE)
+from services.db           import (health_check as db_health, get_client as db_client,
+                                    save_trade as db_save_trade,
+                                    save_model_version, load_recent_trades)
+from services.market       import data_source_status
 from services.ollama       import (status as ollama_status, chat as ollama_chat,
                                    parse_order, commentary as ollama_commentary,
                                    summarize as ollama_summarize)
@@ -137,6 +152,28 @@ def _tick_portfolio():
     portfolio["daily_pnl"]    = round(portfolio["equity"] * d, 2)
 
 async def sim_loop():
+    # Load recent trades from Supabase on first run
+    try:
+        db_trades = load_recent_trades(100)
+        if db_trades:
+            for t in reversed(db_trades):
+                trades.insert(0, {
+                    "id":         str(t.get("id","")),
+                    "agent_abbr": t.get("agent_abbr",""),
+                    "symbol":     t.get("symbol",""),
+                    "side":       t.get("side",""),
+                    "price":      float(t.get("price",0)),
+                    "pnl":        float(t.get("pnl",0)),
+                    "horizon":    t.get("horizon",""),
+                    "ts":         t.get("created_at",""),
+                    "status":     t.get("status","filled"),
+                    "source":     "db",
+                })
+            trades[:] = trades[:300]
+            logger.info(f"Loaded {len(db_trades)} trades from Supabase")
+    except Exception as e:
+        logger.warning(f"Could not load trades from DB: {e}")
+
     while True:
         await asyncio.sleep(settings.simulation_tick_seconds)
         _tick_prices(); _tick_agents(); _tick_portfolio()
@@ -168,6 +205,10 @@ async def agent_bg_loop():
             sig = await run_cycle(abbr, sym, h)
             signals.insert(0, sig); signals[:] = signals[:100]
             await ws_manager.broadcast({"type": "signal", "signal": sig})
+            # Notify scheduler of regime changes
+            if abbr == "REG" and sig.get("action") != "HOLD":
+                from services.agents import _regime
+                notify_regime_change(_regime.get("label","unknown"))
         except Exception as e:
             logger.warning(f"agent_bg [{abbr}]: {e}")
 
@@ -175,12 +216,12 @@ async def agent_bg_loop():
 @asynccontextmanager
 async def lifespan(app):
     set_broadcast(ws_manager.broadcast)
-    tasks = [asyncio.create_task(t) for t in [sim_loop(), agent_bg_loop(), worker_loop()]]
+    tasks = [asyncio.create_task(t) for t in [sim_loop(), agent_bg_loop(), worker_loop(), scheduler_loop(), scout_loop()]]
     yield
     for t in tasks: t.cancel()
 
 # ── App ───────────────────────────────────────────────────────────────────────
-app = FastAPI(title="AI Trading Lab", version="5.0.0", lifespan=lifespan)
+app = FastAPI(title="AI Trading Lab", version="7.0.0", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"],
                    allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
@@ -215,6 +256,35 @@ class AgentConfigIn(BaseModel):
     take_profit_pct:  Optional[float] = None
     use_regime_gate:  Optional[bool]  = None
     weight:           Optional[float] = None
+
+class BacktestIn(BaseModel):
+    abbr:             str   = "MOM"
+    symbol:           str   = "SPY"
+    horizon:          str   = "swing"
+    initial_capital:  float = 10000.0
+    extra_symbols:    list  = []
+
+class MultiBacktestIn(BaseModel):
+    abbr:             str   = "MOM"
+    symbols:          list  = ["SPY","QQQ","AAPL"]
+    horizon:          str   = "swing"
+    initial_capital:  float = 10000.0
+
+class SymbolIn(BaseModel):
+    symbol: str
+    name:   str   = ""
+    sector: str   = "Custom"
+    type:   str   = "stock"
+
+class CsvUploadIn(BaseModel):
+    symbol:  str
+    content: str   # raw CSV text
+
+class TrainMultiIn(BaseModel):
+    abbr:           str  = "MOM"
+    symbols:        list = ["SPY","QQQ","AAPL"]
+    horizon:        str  = "swing"
+    force_retrain:  bool = False
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  API ROUTES  ← must all be defined BEFORE the static file mount
@@ -371,6 +441,11 @@ async def api_execute(body: TradeIn):
         a["last_trade"]   = f"{body.side.upper()} {sym} @ {price:.2f}"
         a["trades_count"] = a.get("trades_count", 0) + 1
     await ws_manager.broadcast({"type": "trade", "trade": trade})
+    # Persist to Supabase (best-effort)
+    try:
+        await asyncio.get_event_loop().run_in_executor(None, db_save_trade, trade)
+    except Exception:
+        pass
     return trade
 
 # ── Signals ───────────────────────────────────────────────────────────────────
@@ -483,6 +558,189 @@ async def ws_live(ws: WebSocket):
                 await ws.send_text('{"type":"pong"}')
     except WebSocketDisconnect:
         ws_manager.disconnect(ws)
+
+# ── Models registry ──────────────────────────────────────────────────────────
+@app.get("/api/models")
+def api_models():
+    return list_models()
+
+@app.get("/api/models/verify")
+def api_verify(horizon: str = "swing"):
+    abbrs = list(CATALOGUE.keys())
+    return verify_models(abbrs, [horizon])
+
+@app.get("/api/models/{abbr}/{symbol}/{horizon}")
+def api_model_detail(abbr: str, symbol: str, horizon: str):
+    m = get_meta(abbr.upper(), symbol.upper(), horizon)
+    if not m.get("trained", False) and not m.get("cached", False):
+        raise HTTPException(404, "Model not found")
+    return m
+
+# ── Backtest ──────────────────────────────────────────────────────────────────
+@app.post("/api/backtest/run")
+async def api_backtest(body: BacktestIn):
+    loop   = asyncio.get_event_loop()
+    df_raw = await loop.run_in_executor(None, get_ohlcv, body.symbol.upper(), body.horizon)
+    if df_raw is None or df_raw.empty:
+        raise HTTPException(400, f"No data for {body.symbol}/{body.horizon}")
+    df = await loop.run_in_executor(None, add_indicators, df_raw)
+    result = await loop.run_in_executor(
+        None, run_backtest,
+        body.abbr.upper(), body.symbol.upper(), body.horizon, df, body.initial_capital
+    )
+    return result
+
+@app.post("/api/backtest/multi")
+async def api_backtest_multi(body: MultiBacktestIn):
+    result = await asyncio.get_event_loop().run_in_executor(
+        None, run_multi_backtest,
+        body.abbr.upper(), [s.upper() for s in body.symbols],
+        body.horizon, body.initial_capital
+    )
+    return result
+
+@app.get("/api/backtest/results")
+def api_backtest_results():
+    return list_results()
+
+@app.get("/api/backtest/results/{abbr}/{symbol}/{horizon}")
+def api_backtest_detail(abbr: str, symbol: str, horizon: str):
+    r = get_result(abbr.upper(), symbol.upper(), horizon)
+    if not r:
+        raise HTTPException(404, "No backtest result found")
+    return r
+
+# ── Universe ──────────────────────────────────────────────────────────────────
+@app.get("/api/universe")
+def api_universe(sector: Optional[str] = None, type: Optional[str] = None):
+    return {"symbols": get_symbols(sector, type),
+            "sectors": list_sectors(),
+            "total": len(get_universe())}
+
+@app.post("/api/universe/symbols")
+def api_add_symbol(body: SymbolIn):
+    return add_symbol(body.symbol, body.name, body.sector, body.type)
+
+@app.delete("/api/universe/symbols/{symbol}")
+def api_remove_symbol(symbol: str):
+    ok = remove_symbol(symbol.upper())
+    if not ok:
+        raise HTTPException(404, f"{symbol} not in universe")
+    return {"removed": symbol.upper()}
+
+@app.get("/api/universe/agent/{abbr}")
+def api_agent_universe(abbr: str):
+    return {"abbr": abbr.upper(), "symbols": symbols_for_agent(abbr.upper())}
+
+# ── CSV upload + custom data ──────────────────────────────────────────────────
+@app.post("/api/data/upload-csv")
+async def api_upload_csv(body: CsvUploadIn):
+    result = parse_uploaded_csv(body.content, body.symbol)
+    if "error" in result:
+        raise HTTPException(400, result["error"])
+    return result
+
+@app.get("/api/data/uploads")
+def api_list_uploads():
+    return list_custom_uploads()
+
+# ── Multi-symbol training ─────────────────────────────────────────────────────
+@app.post("/api/train/multi")
+async def api_train_multi(body: TrainMultiIn):
+    """Queue training jobs for one agent across multiple symbols."""
+    jobs_queued = []
+    for sym in body.symbols[:20]:   # cap at 20 to avoid queue flood
+        job = await enqueue(body.abbr.upper(), sym.upper(),
+                            body.horizon, body.force_retrain)
+        jobs_queued.append(job.to_dict())
+    return {"queued": len(jobs_queued), "jobs": jobs_queued}
+
+# ── Training stats ────────────────────────────────────────────────────────────
+@app.get("/api/training/stats")
+def api_training_stats():
+    models   = list_models()
+    results  = list_results()
+    return {
+        "total_models":       len(models),
+        "trained_models":     len([m for m in models if m.get("model_exists")]),
+        "avg_oos_accuracy":   round(float(sum(m["accuracy_oos"] for m in models) / max(len(models),1)), 1),
+        "avg_overfit_gap":    round(float(sum(m["overfit_gap"] for m in models) / max(len(models),1)), 1),
+        "overfit_count":      sum(1 for m in models if m.get("overfit_flag")),
+        "backtests_run":      len(results),
+        "avg_backtest_sharpe":round(float(sum(r.get("sharpe",0) for r in results) / max(len(results),1)), 3),
+        "positive_alpha_count":sum(1 for r in results if (r.get("alpha") or 0) > 0),
+    }
+
+# ── Scheduler ────────────────────────────────────────────────────────────────
+@app.get("/api/scheduler/status")
+def api_scheduler_status():
+    return {
+        "enabled":          AUTO_RETRAIN_ENABLED,
+        "min_accuracy_pct": round(MIN_ACCURACY * 100, 1),
+        "interval_min":     SCHEDULER_INTERVAL,
+        "retrain_log":      get_retrain_log(20),
+        "history_summary":  {
+            abbr: {
+                "entries":      len(hist),
+                "latest_acc":   hist[0]["accuracy"] if hist else 0,
+                "trend":        round(hist[0]["accuracy"] - hist[-1]["accuracy"], 2) if len(hist) >= 2 else 0,
+            }
+            for abbr, hist in get_all_history().items()
+        }
+    }
+
+@app.get("/api/scheduler/history/{abbr}")
+def api_agent_history(abbr: str, limit: int = 50):
+    hist = get_history(abbr.upper(), limit)
+    if not hist:
+        return {"abbr": abbr.upper(), "entries": [], "message": "No training history yet"}
+    return {
+        "abbr":       abbr.upper(),
+        "entries":    hist,
+        "best_acc":   max(h["accuracy"] for h in hist),
+        "latest_acc": hist[0]["accuracy"],
+        "trend":      round(hist[0]["accuracy"] - hist[-1]["accuracy"], 2) if len(hist) >= 2 else 0,
+        "total_runs": len(hist),
+    }
+
+@app.get("/api/scheduler/history")
+def api_all_history():
+    return get_all_history()
+
+# ── SCOUT ─────────────────────────────────────────────────────────────────────
+class ScoutIn(BaseModel):
+    symbols:  list = []
+    horizon:  str  = "swing"
+    top_n:    int  = 10
+    force:    bool = False
+
+@app.post("/api/scout/screen")
+async def api_scout_screen(body: ScoutIn):
+    if not body.force:
+        cached = get_cached_screen()
+        if cached:
+            return cached
+    from services.agents import _regime
+    regime = _regime.get("label", "unknown")
+    result = await run_screen(
+        symbols=body.symbols or None,
+        horizon=body.horizon,
+        top_n=body.top_n,
+        regime=regime,
+    )
+    return result
+
+@app.get("/api/scout/latest")
+def api_scout_latest():
+    cached = get_cached_screen()
+    if not cached:
+        return {"message": "No screen run yet — POST /api/scout/screen to start"}
+    return cached
+
+@app.get("/api/scout/universe")
+def api_scout_universe():
+    return {"groups": SCREEN_UNIVERSE,
+            "total": sum(len(v) for v in SCREEN_UNIVERSE.values())}
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  STATIC FILES + SPA CATCH-ALL  ← must come AFTER all /api routes

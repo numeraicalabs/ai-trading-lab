@@ -8,7 +8,7 @@
  *   regime_gate     — REG broadcasts market regime to all agents  (cyan)
  *   sentiment_boost — SEN pushes sentiment scores                (orange)
  *   vol_warning     — VOL warns about high volatility             (red)
- *   consensus       — agents agree → OPT gets a combined signal  (green)
+ *   consensus       — agents agree -> OPT gets a combined signal  (green)
  *   rebalance       — OPT triggers portfolio rebalance           (emerald)
  *   regime_block    — REG blocks a contra-trend signal           (yellow)
  */
@@ -225,7 +225,7 @@ export function ImpulseFlow({ agents = [], impulses = [], liveImpulses = {}, hei
                 <span style={{ fontSize:11, fontWeight:700 }}>
                   <span style={{ color: (catMap[imp.from]?.color || C.accent),
                                  fontFamily:'monospace' }}>{imp.from}</span>
-                  <span style={{ color:C.dim }}> → </span>
+                  <span style={{ color:C.dim }}> -> </span>
                   <span style={{ color:(catMap[imp.to]?.color || C.muted),
                                  fontFamily:'monospace' }}>{imp.to}</span>
                 </span>

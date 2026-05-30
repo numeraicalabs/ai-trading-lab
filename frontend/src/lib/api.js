@@ -55,6 +55,30 @@ export const api = {
   risk:         ()         => get('/api/analytics/risk'),
   equity:       (n=80)     => get(`/api/analytics/equity-history?points=${n}`),
   scenario:     ()         => get('/api/analytics/scenario'),
+  // Health checks
+  health:         ()          => get('/health'),
+  healthSupabase: ()          => get('/api/health/supabase'),
+  healthData:     ()          => get('/api/health/data'),
+  // Models registry
+  models:         ()          => get('/api/models'),
+  verifyModels:   (h='swing') => get(`/api/models/verify?horizon=${h}`),
+  modelDetail:    (a,s,h)     => get(`/api/models/${a}/${s}/${h}`),
+  trainingStats:  ()          => get('/api/training/stats'),
+  // Backtest
+  runBacktest:    (body)      => post('/api/backtest/run', body),
+  runMultiBt:     (body)      => post('/api/backtest/multi', body),
+  backtestResults:()          => get('/api/backtest/results'),
+  backtestDetail: (a,s,h)     => get(`/api/backtest/results/${a}/${s}/${h}`),
+  // Universe
+  universe:       (sec,typ)   => get(`/api/universe${sec?`?sector=${sec}`:''}${typ?`${sec?'&':'?'}type=${typ}`:''}`),
+  addSymbol:      (body)      => post('/api/universe/symbols', body),
+  removeSymbol:   (sym)       => fetch(`/api/universe/symbols/${sym}`,{method:'DELETE'}).then(r=>r.json()),
+  agentUniverse:  (a)         => get(`/api/universe/agent/${a}`),
+  // Data upload
+  uploadCsv:      (body)      => post('/api/data/upload-csv', body),
+  listUploads:    ()          => get('/api/data/uploads'),
+  // Multi-symbol training
+  trainMulti:     (body)      => post('/api/train/multi', body),
   // Impulses + Config + Regime
   impulses:     (n=50)     => get(`/api/impulses?limit=${n}`),
   liveImpulses: ()         => get('/api/impulses/live'),
@@ -70,5 +94,9 @@ export const api = {
   parseOrder:   (body)     => post('/api/chat/parse-order', body),
   summarize:    (body)     => post('/api/summarize', body),
 }
+
+// raw helper for custom paths
+api.get  = (path)       => get(path)
+api.post = (path, body) => post(path, body)
 
 export default api
