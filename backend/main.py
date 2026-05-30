@@ -71,6 +71,7 @@ from services.scheduler    import (scheduler_loop, get_history, get_all_history,
                                     get_retrain_log, notify_regime_change,
                                     AUTO_RETRAIN_ENABLED, MIN_ACCURACY, SCHEDULER_INTERVAL)
 from services.scout        import (run_screen, get_cached_screen, scout_loop, SCREEN_UNIVERSE)
+from services.agent_pdf    import generate_agent_pdf, save_agent_pdf
 from services.reports      import (generate_portfolio_report, generate_scout_report,
                                     generate_backtest_report, list_reports, get_report_html)
 from services.db           import (health_check as db_health, get_client as db_client,
@@ -750,6 +751,42 @@ def api_scout_latest():
 def api_scout_universe():
     return {"groups": SCREEN_UNIVERSE,
             "total": sum(len(v) for v in SCREEN_UNIVERSE.values())}
+
+# ── Agent PDF ─────────────────────────────────────────────────────────────────
+@app.get("/api/agents/{abbr}/pdf")
+async def api_agent_pdf(abbr: str):
+    """Generate and return a PDF presentation for an agent."""
+    from fastapi.responses import Response
+    abbr_up = abbr.upper()
+    agent   = get(abbr_up)
+    if not agent:
+        raise HTTPException(404, f"Agent {abbr_up} not found")
+
+    from services.trainer  import get_meta
+    from services.backtest import get_result
+    
+    sym  = (agent.get("assets") or ["SPY"])[0]
+    h    = agent.get("horizon", "swing")
+    meta = get_meta(abbr_up, sym, h)
+    bt   = get_result(abbr_up, sym, h)
+    # Use in-memory trades filtered by agent
+    agent_trades = [t for t in trades if t.get("agent_abbr") == abbr_up][:30]
+
+    try:
+        loop    = asyncio.get_event_loop()
+        pdf_bytes = await loop.run_in_executor(
+            None, generate_agent_pdf, agent, meta, bt, agent_trades
+        )
+        save_agent_pdf(abbr_up, pdf_bytes)
+        filename = f"agent-{abbr_up.lower()}-profile.pdf"
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    except Exception as e:
+        logger.error(f"PDF generation error [{abbr_up}]: {e}", exc_info=True)
+        raise HTTPException(500, f"PDF error: {str(e)[:200]}")
 
 # ── Reports ──────────────────────────────────────────────────────────────────
 @app.get("/api/reports")
