@@ -78,7 +78,7 @@ function KpiBar({ p }) {
 }
 
 // ── Dashboard ────────────────────────────────────────────────────────────────
-function Dashboard({ portfolio, agents, trades, prices, onOrder }) {
+function Dashboard({ portfolio, agents = [], trades = [], prices = {}, onOrder }) {
   const [eqData,    setEqData]    = useState([])
   const [risk,      setRisk]      = useState(null)
   const [ensemble,  setEnsemble]  = useState(null)
@@ -358,7 +358,7 @@ function Dashboard({ portfolio, agents, trades, prices, onOrder }) {
 
 
 // ── Agents page ────────────────────────────────────────────────────────────────
-function AgentsPage({ agents, loading, onSelect }) {
+function AgentsPage({ agents = [], loading, onSelect }) {
   const [filter, setFilter] = useState('All')
   const [search, setSearch] = useState('')
   const filtered = agents.filter(a =>
@@ -396,7 +396,7 @@ function AgentsPage({ agents, loading, onSelect }) {
 }
 
 // ── Analytics page ─────────────────────────────────────────────────────────────
-function AnalyticsPage({ agents }) {
+function AnalyticsPage({ agents = [] }) {
   const [scenario, setScenario] = useState([])
   const [risk,     setRisk]     = useState(null)
   useEffect(() => { api.scenario().then(d=>d&&setScenario(d)); api.risk().then(d=>d&&setRisk(d)) }, [])
@@ -476,7 +476,7 @@ function AnalyticsPage({ agents }) {
 }
 
 // ── Trades page ────────────────────────────────────────────────────────────────
-function TradesPage({ trades, onOrder }) {
+function TradesPage({ trades = [], onOrder }) {
   return (
     <div>
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:20 }}>
@@ -555,7 +555,7 @@ function TradesPage({ trades, onOrder }) {
 }
 
 // ── Chat page ──────────────────────────────────────────────────────────────────
-function ChatPage({ portfolio, agents, onOrderSuggested }) {
+function ChatPage({ portfolio, agents = [], onOrderSuggested }) {
   return (
     <div>
       <div style={{ marginBottom:20 }}>
@@ -653,7 +653,7 @@ export default function App() {
   const renderPage = () => {
     if (selectedAgent) return <AgentDetail agent={selectedAgent} onBack={() => setSelectedAgent(null)}/>
     switch (page) {
-      case 'dashboard':  return <Dashboard  portfolio={portfolio} trades={trades} onOrder={() => openOrder()}/>
+      case 'dashboard':  return <Dashboard  portfolio={portfolio} agents={agents} trades={trades} prices={prices} onOrder={() => openOrder()}/>
       case 'agents':     return <AgentsPage agents={agents} loading={loading} onSelect={setSelectedAgent}/>
       case 'ecosystem':  return <EcosystemPage lastMessage={lastMessage}/>
       case 'network':    return <NetworkPage agents={agents} impulses={impulses} liveImpulses={liveImpulses} regime={regime}/>
@@ -663,7 +663,7 @@ export default function App() {
       case 'lab':        return <TrainingLabPage/>
       case 'learning':   return <AgentLearningPage/>
       case 'scout':      return <ScoutPage/>
-      default:           return <Dashboard  portfolio={portfolio} trades={trades} onOrder={() => openOrder()}/>
+      default:           return <Dashboard  portfolio={portfolio} agents={agents} trades={trades} prices={prices} onOrder={() => openOrder()}/>
     }
   }
 

@@ -110,7 +110,7 @@ function CorrCell({ v }) {
 }
 
 // ── Root page ─────────────────────────────────────────────────────────────────
-export default function NetworkPage({ agents, impulses, liveImpulses, regime }) {
+export default function NetworkPage({ agents = [], impulses = [], liveImpulses = {}, regime = {} }) {
   const [opportunities, setOpportunities] = useState([])
   const [correlation,   setCorrelation]   = useState(null)
   const [flowData,      setFlowData]      = useState(null)

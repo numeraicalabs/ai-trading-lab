@@ -12,10 +12,10 @@ declare
   pol text;
 begin
   for tbl, pol in
-    select table_name, policyname
+    select tablename, policyname
     from pg_policies
     where schemaname = 'public'
-      and table_name in (
+      and tablename in (
         'trades','training_jobs','model_versions',
         'agent_snapshots','portfolio_snapshots',
         'scout_screens','chat_messages'
