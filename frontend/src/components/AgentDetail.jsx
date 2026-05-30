@@ -1,4 +1,33 @@
 import { useState } from 'react'
+
+function PdfDownloadButton({ abbr, color }) {
+  const [loading, setLoading] = useState(false)
+  const download = async () => {
+    setLoading(true)
+    try {
+      const r = await fetch(`/api/agents/${abbr}/pdf`)
+      if (!r.ok) throw new Error(await r.text())
+      const blob = await r.blob()
+      const url  = URL.createObjectURL(blob)
+      const a    = document.createElement('a')
+      a.href     = url
+      a.download = `agent-${abbr.toLowerCase()}-profile.pdf`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch(e) { alert('PDF error: ' + e.message) }
+    setLoading(false)
+  }
+  return (
+    <button onClick={download} disabled={loading}
+      title="Download agent profile PDF"
+      style={{ padding:'7px 14px', borderRadius:8, cursor:'pointer', fontSize:11, fontWeight:700,
+               display:'flex', alignItems:'center', gap:5,
+               background:`${color}22`, border:`1px solid ${color}66`, color,
+               opacity: loading ? 0.6 : 1 }}>
+      {loading ? '⏳' : '📄'} {loading ? 'Generating…' : 'Export PDF'}
+    </button>
+  )
+}
 import {
   AreaChart, Area, LineChart, Line,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -52,6 +81,7 @@ export function AgentDetail({ agent, onBack }) {
         <button onClick={onBack} style={{ background:C.surface, border:`1px solid ${C.border}`,
           borderRadius:8, color:C.text, padding:'7px 14px', fontSize:12, cursor:'pointer',
           display:'flex', alignItems:'center', gap:5 }}>← Back</button>
+        <PdfDownloadButton abbr={agent.abbr} color={agent.color}/>
         <div style={{ display:'flex', gap:12, alignItems:'center' }}>
           <div style={{ width:44, height:44, borderRadius:12, fontSize:22,
             background:`${agent.color}22`, border:`1px solid ${agent.color}44`,
