@@ -1,60 +1,65 @@
 /**
- * API client — works in both dev (vite proxy → :8000) and
- * production (same origin, FastAPI serves the React build).
+ * API client — uses relative URLs.
+ * Dev:  Vite proxy forwards /api/* and /ws/* to FastAPI on :8000
+ * Prod: FastAPI serves everything on the same origin
  */
-const BASE = ''   // Always relative — works in dev via Vite proxy, in prod via same-origin
-
 async function get(path) {
   try {
-    const r = await fetch(BASE + path)
+    const r = await fetch(path)
     if (!r.ok) throw new Error(`HTTP ${r.status}`)
     return r.json()
-  } catch (e) {
-    console.warn('GET', path, e.message)
-    return null
-  }
+  } catch (e) { console.warn('GET', path, e.message); return null }
 }
 
 async function post(path, body) {
   try {
-    const r = await fetch(BASE + path, {
+    const r = await fetch(path, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     })
     if (!r.ok) throw new Error(`HTTP ${r.status}`)
     return r.json()
-  } catch (e) {
-    console.warn('POST', path, e.message)
-    return null
-  }
+  } catch (e) { console.warn('POST', path, e.message); return null }
 }
 
 export const api = {
-  agents:       ()      => get('/api/agents'),
-  agent:        (a)     => get(`/api/agents/${a}`),
-  portfolio:    ()      => get('/api/portfolio'),
-  prices:       ()      => get('/api/prices'),
-  trades:       (a, l)  => get(`/api/trades${a ? `?agent=${a}` : ''}${l ? `${a ? '&' : '?'}limit=${l}` : ''}`),
-  signals:      ()      => get('/api/signals'),
-  ensemble:     ()      => get('/api/signals/ensemble'),
-  risk:         ()      => get('/api/analytics/risk'),
-  equity:       (n=80)  => get(`/api/analytics/equity-history?points=${n}`),
-  scenario:     ()      => get('/api/analytics/scenario'),
-  watchlist:    ()      => get('/api/watchlist'),
-  ollamaStatus: ()      => get('/api/ollama/status'),
-  ecoStatus:    ()      => get('/api/ecosystem/status'),
-  trainingJobs: ()      => get('/api/training/jobs'),
-  horizons:     (h)     => get(`/api/horizons/recommend?horizon=${h}`),
-  quote:        (s)     => get(`/api/quote/${s}`),
-  trainAgent:   (a, b)  => post(`/api/agents/${a}/train`, b),
-  runAgent:     (a, b)  => post(`/api/agents/${a}/run`, b),
-  commentary:   (a)     => post(`/api/agents/${a}/commentary`, {}),
-  trainAll:     (b)     => post('/api/ecosystem/train-all', b),
-  executeTrade: (b)     => post('/api/trades/execute', b),
-  chat:         (b)     => post('/api/chat', b),
-  parseOrder:   (b)     => post('/api/chat/parse-order', b),
-  summarize:    (b)     => post('/api/summarize', b),
+  // Market
+  prices:       ()         => get('/api/prices'),
+  quote:        (sym)      => get(`/api/quote/${sym}`),
+  portfolio:    ()         => get('/api/portfolio'),
+  watchlist:    ()         => get('/api/watchlist'),
+  ohlcv:        (sym, h)   => get(`/api/market/ohlcv/${sym}?horizon=${h}`),
+  news:         (sym)      => get(`/api/market/news/${sym}`),
+  // Agents
+  agents:       ()         => get('/api/agents'),
+  agent:        (a)        => get(`/api/agents/${a}`),
+  agentModel:   (a)        => get(`/api/agents/${a}/model`),
+  setHorizon:   (a, h)     => post(`/api/agents/${a}/horizon`, { horizon: h }),
+  trainAgent:   (a, body)  => post(`/api/agents/${a}/train`, body),
+  runAgent:     (a, body)  => post(`/api/agents/${a}/run`, body),
+  commentary:   (a)        => post(`/api/agents/${a}/commentary`, {}),
+  // Ecosystem
+  ecoStatus:    ()         => get('/api/ecosystem/status'),
+  trainAll:     (body)     => post('/api/ecosystem/train-all', body),
+  trainingJobs: ()         => get('/api/training/jobs'),
+  trainingJob:  (id)       => get(`/api/training/jobs/${id}`),
+  // Trades
+  trades:       (a, l)     => get(`/api/trades${a?`?agent=${a}`:''}${l?`${a?'&':'?'}limit=${l}`:''}`),
+  executeTrade: (body)     => post('/api/trades/execute', body),
+  // Signals
+  signals:      ()         => get('/api/signals'),
+  ensemble:     ()         => get('/api/signals/ensemble'),
+  horizons:     (h)        => get(`/api/horizons/recommend?horizon=${h}`),
+  // Analytics
+  risk:         ()         => get('/api/analytics/risk'),
+  equity:       (n=80)     => get(`/api/analytics/equity-history?points=${n}`),
+  scenario:     ()         => get('/api/analytics/scenario'),
+  // Ollama
+  ollamaStatus: ()         => get('/api/ollama/status'),
+  chat:         (body)     => post('/api/chat', body),
+  parseOrder:   (body)     => post('/api/chat/parse-order', body),
+  summarize:    (body)     => post('/api/summarize', body),
 }
 
 export default api

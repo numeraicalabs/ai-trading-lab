@@ -1,5 +1,5 @@
-# Single service — FastAPI serves the React build directly.
-# No confusion between two URLs. The same URL is both API and frontend.
+# Single web service — FastAPI serves both the REST API and the React SPA.
+# No CORS confusion, no two-URL problem.
 services:
   - type: web
     name: ai-trading-lab
@@ -30,6 +30,8 @@ services:
         generateValue: true
       - key: ENVIRONMENT
         value: production
+      - key: ALLOWED_ORIGINS
+        value: "*"
       - key: INITIAL_CAPITAL
         value: "100000"
       - key: TRANSACTION_FEE_PCT
@@ -40,9 +42,11 @@ services:
         value: "8"
       - key: AGENTS_AUTO_START
         value: "true"
-      - key: ALLOWED_ORIGINS
-        value: "*"
       - key: OLLAMA_BASE_URL
-        sync: false
+        value: "http://localhost:11434"
       - key: OLLAMA_MODEL
         value: llama3
+      - key: ALPHA_VANTAGE_KEY
+        value: demo
+      - key: NEWS_API_KEY
+        sync: false
