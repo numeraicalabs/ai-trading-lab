@@ -1,95 +1,97 @@
-# ⚡ AI Trading Agents Lab
+# ⚡ AI Trading Lab
 
-A full-stack paper trading simulation platform with 9 AI agents, real-time WebSockets, Supabase database, and one-click Render deployment.
+Multi-agent paper trading platform — 9 ML models, real market data, Ollama AI chat.
 
-## 🏗️ Stack
-
-| Layer | Tech |
-|-------|------|
-| Frontend | React 18 + Vite + Recharts |
-| Backend | Python 3.11 + FastAPI + WebSockets |
-| Database | Supabase (PostgreSQL) |
-| Hosting | Render (Web Service + Static Site) |
-| Real-time | WebSockets + Supabase Realtime |
+**Stack:** React 18 + Vite · FastAPI + Python 3.11 · Supabase PostgreSQL · Ollama (local LLM) · yfinance · scikit-learn
 
 ---
 
-## 🚀 Quick Deploy (Render + Supabase)
+## 🚀 Local Development (5 minutes)
 
-### 1. Supabase Setup
-
-1. Go to [supabase.com](https://supabase.com) → New Project
-2. Copy your **Project URL** and **anon key** from Settings → API
-3. Run the migration in Supabase SQL Editor:
-
-```bash
-# Paste contents of supabase/migrations/001_init.sql into Supabase SQL Editor
-```
-
-### 2. GitHub Setup
-
-```bash
-git init
-git add .
-git commit -m "Initial commit"
-git remote add origin https://github.com/YOUR_USER/ai-trading-lab.git
-git push -u origin main
-```
-
-### 3. Render Setup
-
-1. Go to [render.com](https://render.com) → New → **Blueprint**
-2. Connect your GitHub repo
-3. Render reads `render.yaml` and creates both services automatically
-
-Set these **Environment Variables** in Render dashboard:
-
-```
-SUPABASE_URL=https://xxxx.supabase.co
-SUPABASE_KEY=your-anon-key
-SECRET_KEY=your-random-secret-32chars
-ALLOWED_ORIGINS=https://your-frontend.onrender.com
-```
-
----
-
-## 🛠️ Local Development
-
-### Prerequisites
-- Python 3.11+
-- Node.js 18+
-- A Supabase project
-
-### Backend
-
+### 1. Backend
 ```bash
 cd backend
-python -m venv venv
-source venv/bin/activate          # Windows: venv\Scripts\activate
+python -m venv venv && source venv/bin/activate   # Windows: venv\Scripts\activate
 pip install -r requirements.txt
-
-# Copy and fill environment variables
-cp ../.env.example .env
-
+cp ../.env.example .env           # fill in SUPABASE_URL + SUPABASE_KEY
 uvicorn main:app --reload --port 8000
+# → http://localhost:8000/health
+# → http://localhost:8000/docs    (Swagger UI)
 ```
 
-### Frontend
-
+### 2. Frontend (new terminal)
 ```bash
 cd frontend
 npm install
-
-# Copy and fill environment variables
-cp ../.env.example .env.local
-# Set VITE_API_URL=http://localhost:8000
-# Set VITE_SUPABASE_URL=...
-# Set VITE_SUPABASE_ANON_KEY=...
-
 npm run dev
+# → http://localhost:5173   ← open this in your browser
 ```
 
-Open [http://localhost:5173](http://localhost:5173)
+The Vite dev server proxies `/api/*` and `/ws/*` to `localhost:8000` automatically.
+
+---
+
+## ☁️ Deploy to Render (single service)
+
+1. Push repo to GitHub
+2. Go to [render.com](https://render.com) → **New Blueprint**
+3. Connect your repo — Render reads `render.yaml` automatically
+4. Set environment variables:
+   - `SUPABASE_URL` = your project URL
+   - `SUPABASE_KEY` = your anon key
+   - `SUPABASE_SERVICE_ROLE_KEY` = your service role key
+5. Click **Apply** → wait ~5 minutes for build
+
+**Single service, single URL** — FastAPI serves both the API and the React app.
+No CORS confusion, no "wrong URL" issues.
+
+---
+
+## 🗄️ Supabase Setup
+
+1. Create a project at [supabase.com](https://supabase.com)
+2. Go to **SQL Editor** and run both migrations in order:
+   - `supabase/migrations/001_init.sql`
+   - `supabase/migrations/002_model_versions.sql`
+3. Go to **Storage** → create a bucket called `model-storage` (public)
+4. Copy your URL + keys to `.env`
+
+---
+
+## 🤖 Ollama (AI Chat)
+
+```bash
+# Install Ollama: https://ollama.ai
+curl -fsSL https://ollama.ai/install.sh | sh
+ollama pull llama3
+ollama serve        # keeps running on http://localhost:11434
+```
+
+Add to `.env`:
+```
+OLLAMA_BASE_URL=http://localhost:11434
+OLLAMA_MODEL=llama3
+```
+
+On Render (free tier), Ollama must run locally or on a separate server. The chat features gracefully degrade to a "not available" message when Ollama is offline.
+
+---
+
+## 🤖 The 9 AI Agents
+
+| Abbr | Name | Strategy | Horizons |
+|------|------|----------|----------|
+| MOM | Momentum Agent | Trend Following | day, swing |
+| MRV | Mean Reversion | Contrarian / Stat Arb | scalping, day |
+| PPO | RL PPO Agent | Policy Gradient | day, swing |
+| DQN | DQN Agent | Deep Q-Learning | scalping, day |
+| MAC | Macro Agent | Macro / Top-Down | swing, position |
+| SEN | Sentiment Agent | NLP / News | day, swing |
+| VOL | Volatility Agent | Vol Trading / VIX | scalping, day |
+| REG | Market Regime | HMM + Clustering | swing, position |
+| OPT | Portfolio Optimizer | MVO + RL | swing, position |
+
+**Time horizons:** scalping (5m) · day (1h) · swing (1d) · position (1wk)
 
 ---
 
@@ -98,94 +100,60 @@ Open [http://localhost:5173](http://localhost:5173)
 ```
 ai-trading-lab/
 ├── backend/
-│   ├── main.py              # FastAPI app + WebSocket hub
+│   ├── main.py                    # FastAPI app + static file serving
 │   ├── requirements.txt
-│   ├── agents/
-│   │   ├── base_agent.py    # Abstract agent class
-│   │   ├── momentum.py
-│   │   ├── mean_reversion.py
-│   │   ├── rl_ppo.py
-│   │   ├── dqn.py
-│   │   ├── macro.py
-│   │   ├── sentiment.py
-│   │   ├── volatility.py
-│   │   ├── regime.py
-│   │   └── optimizer.py
-│   ├── database/
-│   │   └── supabase_client.py
-│   ├── routers/
-│   │   ├── agents.py
-│   │   ├── portfolio.py
-│   │   ├── trades.py
-│   │   └── analytics.py
+│   ├── static/                    # React build goes here (auto-generated)
+│   ├── models_cache/              # scikit-learn .pkl cache
+│   ├── database/__init__.py
 │   └── services/
-│       ├── paper_trading.py
-│       ├── market_data.py
-│       └── simulation.py
+│       ├── agent_engine.py        # 9 agents, run cycles, ensemble vote
+│       ├── market_data.py         # yfinance, indicators
+│       ├── model_trainer.py       # sklearn training per agent/horizon
+│       ├── training_queue.py      # async job queue + progress broadcast
+│       ├── paper_trading.py       # simulated orders, slippage, fees
+│       └── ollama_service.py      # chat, order parsing, page summaries
 ├── frontend/
 │   ├── src/
-│   │   ├── App.jsx
-│   │   ├── main.jsx
+│   │   ├── App.jsx                # Root — 7 pages
 │   │   ├── components/
+│   │   │   ├── shared/index.jsx   # Design tokens, Card, Badge, etc.
+│   │   │   ├── layout/TopBar.jsx
+│   │   │   ├── agents/AgentCard.jsx
+│   │   │   ├── agents/AgentDetail.jsx
+│   │   │   ├── trading/OrderModal.jsx
+│   │   │   └── chat/
+│   │   │       ├── OllamaChat.jsx
+│   │   │       └── AiInsightsPanel.jsx
 │   │   ├── hooks/
-│   │   │   ├── useAgents.js
 │   │   │   ├── useWebSocket.js
-│   │   │   └── usePortfolio.js
+│   │   │   └── useAgents.js
 │   │   ├── lib/
-│   │   │   └── supabase.js
+│   │   │   ├── api.js             # All API calls
+│   │   │   └── fallback.js        # Demo data (works without backend)
 │   │   └── pages/
-│   ├── package.json
-│   └── vite.config.js
-├── supabase/
-│   └── migrations/
-│       └── 001_init.sql
-├── .github/
-│   └── workflows/
-│       └── ci.yml
-├── render.yaml
+│   │       └── EcosystemPage.jsx
+│   ├── vite.config.js
+│   └── package.json
+├── supabase/migrations/
+│   ├── 001_init.sql
+│   └── 002_model_versions.sql
+├── render.yaml                    # Single-service Render Blueprint
 ├── .env.example
-└── README.md
+└── .github/workflows/ci.yml
 ```
 
 ---
 
-## 🤖 AI Agents
+## 🔑 Environment Variables
 
-| Agent | Strategy | Status |
-|-------|----------|--------|
-| Momentum Agent | Trend Following | Live |
-| Mean Reversion | Contrarian / Stat Arb | Live |
-| RL PPO Agent | Policy Gradient RL | Training |
-| DQN Agent | Deep Q-Learning | Backtest |
-| Macro Agent | Top-Down / Factor | Live |
-| Sentiment Agent | NLP / News | Live |
-| Volatility Agent | VIX / Vol Trading | Live |
-| Market Regime | HMM Detection | Training |
-| Portfolio Optimizer | MVO + RL Allocation | Live |
-
----
-
-## 🔌 API Endpoints
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/agents` | List all agents |
-| GET | `/api/agents/{id}` | Agent detail + metrics |
-| GET | `/api/portfolio` | Portfolio summary |
-| GET | `/api/trades` | Trade history |
-| POST | `/api/trades/execute` | Execute paper trade |
-| GET | `/api/analytics/correlation` | Correlation matrix |
-| GET | `/api/analytics/risk` | Risk metrics |
-| WS | `/ws/live` | Real-time price + signal stream |
-
----
-
-## 📊 Features
-
-- **Paper Trading Engine** — simulated order execution with slippage & fees
-- **Real-time WebSocket** — live price feed, agent signals, portfolio updates
-- **Supabase Integration** — persisted trades, agent states, equity history
-- **9 AI Agents** — each with independent strategy, metrics, and learning curve
-- **Multi-Agent Ensemble** — voting system, capital allocation
-- **Advanced Analytics** — VaR, CVaR, Monte Carlo, Correlation Matrix
-- **One-click Deploy** — Render Blueprint from `render.yaml`
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `SUPABASE_URL` | ✅ | `https://xxx.supabase.co` |
+| `SUPABASE_KEY` | ✅ | Anon/public key |
+| `SUPABASE_SERVICE_ROLE_KEY` | ✅ | Service role key (for storage) |
+| `SECRET_KEY` | ✅ | Random 32-char string (auto-generated on Render) |
+| `OLLAMA_BASE_URL` | Optional | Default: `http://localhost:11434` |
+| `OLLAMA_MODEL` | Optional | Default: `llama3` |
+| `ALPHA_VANTAGE_KEY` | Optional | Extra market data |
+| `NEWS_API_KEY` | Optional | News sentiment for SEN agent |
+| `INITIAL_CAPITAL` | Optional | Default: `100000` |

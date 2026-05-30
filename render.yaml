@@ -1,20 +1,25 @@
-################################################################################
-# render.yaml — Render Blueprint
-# Deploys both backend (Web Service) and frontend (Static Site) automatically
-################################################################################
-
+# Single service — FastAPI serves the React build directly.
+# No confusion between two URLs. The same URL is both API and frontend.
 services:
-  # ── Backend: FastAPI ─────────────────────────────────────────────────────────
   - type: web
-    name: ai-trading-lab-api
+    name: ai-trading-lab
     runtime: python
-    rootDir: backend
-    buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    region: frankfurt
+    plan: free
+    rootDir: .
+    buildCommand: >
+      pip install -r backend/requirements.txt &&
+      npm --prefix frontend ci &&
+      npm --prefix frontend run build &&
+      mkdir -p backend/static &&
+      cp -r frontend/dist/. backend/static/
+    startCommand: cd backend && uvicorn main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /health
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.0
+      - key: NODE_VERSION
+        value: 18.19.0
       - key: SUPABASE_URL
         sync: false
       - key: SUPABASE_KEY
@@ -23,8 +28,6 @@ services:
         sync: false
       - key: SECRET_KEY
         generateValue: true
-      - key: ALLOWED_ORIGINS
-        sync: false
       - key: ENVIRONMENT
         value: production
       - key: INITIAL_CAPITAL
@@ -34,44 +37,12 @@ services:
       - key: SLIPPAGE_PCT
         value: "0.0005"
       - key: SIMULATION_TICK_SECONDS
-        value: "5"
+        value: "8"
       - key: AGENTS_AUTO_START
         value: "true"
-      - key: YAHOO_FINANCE_ENABLED
-        value: "true"
-
-  # ── Frontend: React/Vite Static Site ─────────────────────────────────────────
-  - type: web
-    name: ai-trading-lab-ui
-    runtime: static
-    rootDir: frontend
-    buildCommand: npm install && npm run build
-    staticPublishPath: dist
-    headers:
-      - path: /*
-        name: X-Frame-Options
-        value: DENY
-      - path: /*
-        name: X-Content-Type-Options
-        value: nosniff
-    routes:
-      - type: rewrite
-        source: /*
-        destination: /index.html
-    envVars:
-      - key: NODE_VERSION
-        value: 18.19.0
-      - key: VITE_API_URL
-        fromService:
-          name: ai-trading-lab-api
-          type: web
-          property: host
-      - key: VITE_WS_URL
-        fromService:
-          name: ai-trading-lab-api
-          type: web
-          property: host
-      - key: VITE_SUPABASE_URL
+      - key: ALLOWED_ORIGINS
+        value: "*"
+      - key: OLLAMA_BASE_URL
         sync: false
-      - key: VITE_SUPABASE_ANON_KEY
-        sync: false
+      - key: OLLAMA_MODEL
+        value: llama3
