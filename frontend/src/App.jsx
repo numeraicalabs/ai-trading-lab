@@ -25,8 +25,8 @@ import TrainingLabPage     from './pages/TrainingLabPage'
 import AgentLearningPage   from './pages/AgentLearningPage'
 // SCOUT Agent
 import ScoutPage           from './pages/ScoutPage'
-// Impulse flow (used in Network page)
-import { ImpulseFlow }     from './components/ImpulseFlow'
+// Network page
+import NetworkPage         from './pages/NetworkPage'
 // Hooks & data
 import { useWebSocket }    from './hooks/useWebSocket'
 import { useAgents }       from './hooks/useAgents'
@@ -395,39 +395,6 @@ function AgentsPage({ agents, loading, onSelect }) {
   )
 }
 
-// ── Network page (live impulse flow) ──────────────────────────────────────────
-function NetworkPage({ agents, impulses, liveImpulses, regime }) {
-  const ensemble = agents.length
-    ? { buy: agents.filter(a => a.last_signal?.action === 'BUY').length,
-        sell: agents.filter(a => a.last_signal?.action === 'SELL').length }
-    : { buy: 7, sell: 2 }
-  return (
-    <div>
-      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:20 }}>
-        <div>
-          <h1 style={{ fontSize:22, fontWeight:800, margin:0 }}>Multi-Agent Network</h1>
-          <p style={{ color:C.muted, fontSize:12, margin:'4px 0 0' }}>Live impulse flow · Signal propagation · Ensemble</p>
-        </div>
-        <div style={{ display:'flex', gap:8 }}>
-          <div style={{ padding:'7px 14px', borderRadius:8, background:`${C.green}18`,
-                        border:`1px solid ${C.green}44`, fontSize:11, color:C.green, fontWeight:700 }}>
-            🟢 {ensemble.buy} BUY
-          </div>
-          <div style={{ padding:'7px 14px', borderRadius:8, background:`${C.red}18`,
-                        border:`1px solid ${C.red}44`, fontSize:11, color:C.red, fontWeight:700 }}>
-            🔴 {ensemble.sell} SELL
-          </div>
-          <div style={{ padding:'7px 14px', borderRadius:8, background:`${C.cyan}18`,
-                        border:`1px solid ${C.cyan}44`, fontSize:11, color:C.cyan, fontWeight:700 }}>
-            🔍 {regime?.label || 'detecting'}
-          </div>
-        </div>
-      </div>
-      <ImpulseFlow agents={agents} impulses={impulses} liveImpulses={liveImpulses} height={440}/>
-    </div>
-  )
-}
-
 // ── Analytics page ─────────────────────────────────────────────────────────────
 function AnalyticsPage({ agents }) {
   const [scenario, setScenario] = useState([])
@@ -527,7 +494,7 @@ function TradesPage({ trades, onOrder }) {
         <div style={{ overflowX:'auto' }}>
           <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12 }}>
             <thead><tr>
-              {['Time','Agent','Symbol','Side','Price','P&L','Horizon','Status'].map(h => (
+              {['Time','Agent','Symbol','Side','Price','P&L','Horizon','Risk','Memo','Status'].map(h => (
                 <th key={h} style={{ textAlign:'left', padding:'8px 12px', color:C.muted,
                   fontSize:10, textTransform:'uppercase', letterSpacing:.8,
                   borderBottom:`1px solid ${C.border}` }}>{h}</th>
@@ -552,6 +519,22 @@ function TradesPage({ trades, onOrder }) {
                     {(t.pnl||0)>=0?'+':''}{(t.pnl||0).toFixed(2)}%
                   </td>
                   <td style={{ padding:'8px 12px', color:C.muted, ...mono, fontSize:10 }}>{t.horizon||'—'}</td>
+                  <td style={{ padding:'8px 12px' }}>
+                    {t.memo && t.memo.risk_level ? (
+                      <span style={{ background:(t.memo.risk_level==='HIGH'?C.red:t.memo.risk_level==='LOW'?C.green:C.yellow)+'22',
+                        color:t.memo.risk_level==='HIGH'?C.red:t.memo.risk_level==='LOW'?C.green:C.yellow,
+                        border:`1px solid ${t.memo.risk_level==='HIGH'?C.red:t.memo.risk_level==='LOW'?C.green:C.yellow}44`,
+                        borderRadius:4, padding:'1px 6px', fontSize:9, fontWeight:700 }}>{t.memo.risk_level}</span>
+                    ) : <span style={{ color:C.dim, fontSize:10 }}>—</span>}
+                  </td>
+                  <td style={{ padding:'8px 12px', maxWidth:180 }}>
+                    {t.memo && (t.memo.thesis || t.reason) ? (
+                      <div style={{ fontSize:10, color:C.muted, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}
+                           title={t.memo.thesis || t.reason}>
+                        {(t.memo.thesis || t.reason || '').slice(0,40)}{(t.memo.thesis||t.reason||'').length>40?'…':''}
+                      </div>
+                    ) : <span style={{ color:C.dim, fontSize:10 }}>No memo</span>}
+                  </td>
                   <td style={{ padding:'8px 12px' }}>
                     <span style={{ background:`${C.green}22`, color:C.green, border:`1px solid ${C.green}44`,
                       borderRadius:4, padding:'1px 7px', fontSize:10, fontWeight:700 }}>{t.status||'filled'}</span>
@@ -662,6 +645,9 @@ export default function App() {
   }, [lastTick])
 
   const openOrder = useCallback((prefill = null) => { setOrderPrefill(prefill); setOrderOpen(true) }, [])
+
+  // Expose openOrder globally so NetworkPage opportunity buttons can open the modal
+  useEffect(() => { window._openOrder = openOrder; return () => { delete window._openOrder } }, [openOrder])
   const handleNav = useCallback((id) => { setPage(id); setSelectedAgent(null) }, [])
 
   const renderPage = () => {

@@ -156,7 +156,7 @@ function ModelsTab() {
               <tbody>
                 {filtered.length === 0 && (
                   <tr><td colSpan={12} style={{ padding:24, textAlign:'center', color:C.muted }}>
-                    No trained models yet — go to Ecosystem -> Train All
+                    No trained models yet — go to Ecosystem &rarr; Train All
                   </td></tr>
                 )}
                 {filtered.map((m, i) => (
@@ -811,7 +811,7 @@ function DataTab() {
                 2024-01-03,185.20,186.74,183.43,184.25,58000000
               </div>
               ✅ Auto-detects separators (comma, semicolon, tab)<br/>
-              ✅ Auto-maps column aliases (Close->close, Adj Close->close)<br/>
+              ✅ Auto-maps column aliases (Close&rarr;close, Adj Close&rarr;close)<br/>
               ✅ Parses any date format<br/>
               ✅ Missing OHLC filled from close if absent<br/>
               ✅ Saved to disk, reused in all training jobs<br/>
@@ -976,7 +976,7 @@ function HealthTab() {
       {h && !h.supabase?.connected && (
         <Card style={{ marginTop:16 }}>
           <SectionTitle title="Supabase Setup Required"
-                        sub="Set these 3 env vars in Render Dashboard -> Environment"/>
+                        sub="Set these 3 env vars in Render Dashboard then Environment"/>
           <div style={{ fontFamily:'monospace', fontSize:11, lineHeight:2, color:C.muted }}>
             {[
               ['SUPABASE_URL',              'https://YOUR_PROJECT.supabase.co'],

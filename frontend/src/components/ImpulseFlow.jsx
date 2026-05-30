@@ -225,7 +225,7 @@ export function ImpulseFlow({ agents = [], impulses = [], liveImpulses = {}, hei
                 <span style={{ fontSize:11, fontWeight:700 }}>
                   <span style={{ color: (catMap[imp.from]?.color || C.accent),
                                  fontFamily:'monospace' }}>{imp.from}</span>
-                  <span style={{ color:C.dim }}> -> </span>
+                  <span style={{ color:C.dim }}> &rarr; </span>
                   <span style={{ color:(catMap[imp.to]?.color || C.muted),
                                  fontFamily:'monospace' }}>{imp.to}</span>
                 </span>

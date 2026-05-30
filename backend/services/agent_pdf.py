@@ -8,7 +8,7 @@ Layout (3 pagine):
 """
 import io, math, os
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path as FilePath   # keep as FilePath to avoid clash with reportlab
 
 # ── ReportLab imports ─────────────────────────────────────────────────────────
 from reportlab.lib.pagesizes   import A4
@@ -20,12 +20,11 @@ from reportlab.platypus         import (SimpleDocTemplate, Paragraph, Spacer,
                                          Table, TableStyle, HRFlowable,
                                          PageBreak, KeepTogether)
 from reportlab.graphics.shapes  import (Drawing, Rect, Line, Polygon,
-                                         String, Circle, Path)
-from reportlab.graphics.charts.lineplots import LinePlot
-from reportlab.graphics.charts.barcharts import VerticalBarChart
+                                         String, Circle)
+# Note: do NOT import Path from reportlab.graphics.shapes — name clashes with pathlib.Path
 from reportlab.graphics         import renderPDF
 
-PDF_DIR = Path(__file__).parent.parent / "agent_pdfs"
+PDF_DIR = FilePath(__file__).parent.parent / "agent_pdfs"
 PDF_DIR.mkdir(exist_ok=True)
 
 # ── Palette ───────────────────────────────────────────────────────────────────
@@ -592,7 +591,7 @@ def generate_agent_pdf(agent: dict, meta: dict = None,
     return buf.getvalue()
 
 
-def save_agent_pdf(agent_abbr: str, pdf_bytes: bytes) -> Path:
+def save_agent_pdf(agent_abbr: str, pdf_bytes: bytes) -> FilePath:
     path = PDF_DIR / f"agent-{agent_abbr.lower()}.pdf"
     path.write_bytes(pdf_bytes)
     return path

@@ -228,11 +228,21 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"],
                    allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
 # ── Schemas ───────────────────────────────────────────────────────────────────
+class MemoIn(BaseModel):
+    signal_source:   str   = ""        # e.g. "MOM + SEN consensus"
+    market_context:  str   = ""        # e.g. "Bull regime, RSI=42"
+    thesis:          str   = ""        # manual thesis text
+    risk_level:      str   = "MEDIUM"  # LOW/MEDIUM/HIGH
+    stop_loss_price: Optional[float] = None
+    take_profit_price:Optional[float]= None
+    tags:            list  = []        # e.g. ["momentum","breakout"]
+
 class TradeIn(BaseModel):
     symbol:     str   = "SPY"; side:     str   = "BUY"; quantity: float = 1.0
     agent_abbr: str   = "MOM"; order_type:str  = "MARKET"
     limit_price:Optional[float] = None;  horizon: str = "swing"
     confidence: float = 0.7;   reason:  str   = ""
+    memo:       MemoIn = MemoIn()
 
 class ChatIn(BaseModel):
     message:             str;  conversation_history: list = []
@@ -437,6 +447,17 @@ async def api_execute(body: TradeIn):
         raise HTTPException(400, str(e))
     trade["source"]  = "manual"
     trade["horizon"] = body.horizon
+    # Attach full memo
+    trade["memo"] = {
+        "signal_source":    body.memo.signal_source,
+        "market_context":   body.memo.market_context,
+        "thesis":           body.memo.thesis or body.reason,
+        "risk_level":       body.memo.risk_level,
+        "stop_loss_price":  body.memo.stop_loss_price,
+        "take_profit_price":body.memo.take_profit_price,
+        "tags":             body.memo.tags,
+        "written_at":       __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat(),
+    }
     trades.insert(0, trade); trades[:] = trades[:300]
     a = AGENT_STATE.get(body.agent_abbr.upper())
     if a:
@@ -787,6 +808,112 @@ async def api_agent_pdf(abbr: str):
     except Exception as e:
         logger.error(f"PDF generation error [{abbr_up}]: {e}", exc_info=True)
         raise HTTPException(500, f"PDF error: {str(e)[:200]}")
+
+# ── Opportunity Scanner ──────────────────────────────────────────────────────
+@app.get("/api/network/opportunities")
+async def api_opportunities():
+    """Scan for multi-agent convergence opportunities in real-time."""
+    from services.agents import AGENT_STATE, CATALOGUE, ensemble_vote, get_regime
+    from services.market  import get_live_quote
+    import statistics
+
+    ops = []
+    # Group latest signals by symbol
+    by_symbol: dict = {}
+    for abbr, state in AGENT_STATE.items():
+        sig = state.get("last_signal", {})
+        if not sig or not sig.get("symbol"): continue
+        sym = sig["symbol"]
+        by_symbol.setdefault(sym, []).append({
+            "abbr":       abbr,
+            "action":     sig.get("action","HOLD"),
+            "confidence": sig.get("confidence", 0.5),
+            "color":      CATALOGUE.get(abbr,{}).get("color","#3b82f6"),
+            "accuracy":   state.get("accuracy", 50),
+        })
+
+    for sym, sigs in by_symbol.items():
+        buys  = [s for s in sigs if s["action"] == "BUY"]
+        sells = [s for s in sigs if s["action"] == "SELL"]
+        if not buys and not sells: continue
+
+        # Weighted confidence (by accuracy)
+        def w_conf(lst):
+            if not lst: return 0
+            return sum(s["confidence"] * (s["accuracy"]/50) for s in lst) / len(lst)
+
+        buy_score  = w_conf(buys)
+        sell_score = w_conf(sells)
+        direction  = "BUY" if buy_score > sell_score else "SELL"
+        agreement  = len(buys) if direction=="BUY" else len(sells)
+        total      = len(sigs)
+        consensus  = agreement / max(total, 1)
+
+        if consensus < 0.4: continue   # need ≥40% agreement
+
+        regime     = get_regime().get("label","unknown")
+        regime_ok  = (direction == "BUY"  and regime in ("bull","neutral","unknown")) or                      (direction == "SELL" and regime in ("bear","neutral","unknown"))
+
+        ops.append({
+            "symbol":       sym,
+            "direction":    direction,
+            "consensus":    round(consensus, 2),
+            "agreement":    agreement,
+            "total_agents": total,
+            "score":        round((buy_score if direction=="BUY" else sell_score) * consensus, 3),
+            "buy_agents":   [s["abbr"] for s in buys],
+            "sell_agents":  [s["abbr"] for s in sells],
+            "regime_aligned": regime_ok,
+            "regime":       regime,
+        })
+
+    ops.sort(key=lambda x: -x["score"])
+    return {"opportunities": ops[:15], "scanned": len(by_symbol), "ts": __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat()}
+
+@app.get("/api/network/correlation")
+async def api_correlation():
+    """Agent return correlation matrix."""
+    from services.agents import AGENT_STATE
+    abbrs = list(AGENT_STATE.keys())
+    # Simulated correlation from equity histories (use real in prod)
+    import random, math
+    random.seed(42)
+    matrix = {}
+    for a in abbrs:
+        matrix[a] = {}
+        for b in abbrs:
+            if a == b:
+                matrix[a][b] = 1.0
+            elif b in matrix and a in matrix[b]:
+                matrix[a][b] = matrix[b][a]
+            else:
+                # Strategy-based base correlation
+                base = 0.3
+                if AGENT_STATE[a].get("strategy") == AGENT_STATE[b].get("strategy"):
+                    base = 0.7
+                noise = random.uniform(-0.2, 0.2)
+                matrix[a][b] = round(max(-1, min(1, base + noise)), 2)
+    return {"matrix": matrix, "agents": abbrs}
+
+@app.get("/api/network/flow")
+async def api_network_flow():
+    """Live impulse flow + active connections."""
+    from services.agents import get_impulses, get_live_impulses, get_regime, AGENT_STATE
+    impulses = get_impulses(30)
+    live     = get_live_impulses()
+    # Connection strength: how many impulses per pair in last 30
+    strength = {}
+    for imp in impulses:
+        key = f"{imp['from']}-{imp['to']}"
+        strength[key] = strength.get(key, 0) + imp.get("strength", 0.5)
+    return {
+        "impulses":        impulses,
+        "live_impulses":   live,
+        "connection_strength": strength,
+        "regime":          get_regime(),
+        "active_agents":   [a for a,s in AGENT_STATE.items() if s["state"]=="Live"],
+        "ts":              __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat(),
+    }
 
 # ── Reports ──────────────────────────────────────────────────────────────────
 @app.get("/api/reports")

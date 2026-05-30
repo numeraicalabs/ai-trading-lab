@@ -79,6 +79,10 @@ export const api = {
   listUploads:    ()          => get('/api/data/uploads'),
   // Multi-symbol training
   trainMulti:     (body)      => post('/api/train/multi', body),
+  // Network
+  networkOpportunities: () => get('/api/network/opportunities'),
+  networkCorrelation:   () => get('/api/network/correlation'),
+  networkFlow:          () => get('/api/network/flow'),
   // Impulses + Config + Regime
   impulses:     (n=50)     => get(`/api/impulses?limit=${n}`),
   liveImpulses: ()         => get('/api/impulses/live'),
