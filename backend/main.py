@@ -51,8 +51,10 @@ class Settings(BaseSettings):
 settings = Settings()
 
 # ── Service imports ───────────────────────────────────────────────────────────
-from services.agents       import (CATALOGUE, AGENT_STATE, get_all, get,
-                                   set_horizon, recommended_for, run_cycle, ensemble_vote)
+from services.agents       import (CATALOGUE, AGENT_STATE, AGENT_CONFIG,
+                                   get_all, get, set_horizon, recommended_for,
+                                   run_cycle, ensemble_vote, update_config,
+                                   get_impulses, get_live_impulses, get_regime)
 from services.market       import get_ohlcv, add_indicators, get_live_quote, get_news_sentiment
 from services.trainer      import train, get_meta
 from services.trainer_queue import (enqueue, list_jobs, get_job, queue_size,
@@ -138,16 +140,19 @@ async def sim_loop():
     while True:
         await asyncio.sleep(settings.simulation_tick_seconds)
         _tick_prices(); _tick_agents(); _tick_portfolio()
+        live_imps = get_live_impulses()
         await ws_manager.broadcast({
             "type":         "tick",
             "prices":       prices,
             "portfolio":    portfolio,
             "latest_trade": trades[0] if trades else None,
+            "regime":       get_regime(),
+            "impulses":     list(live_imps.values())[-20:],
             "agents": {
                 a: {"perf": s.get("perf",0), "equity": s.get("equity",100),
                     "reward": s.get("reward",0), "confidence": round(s.get("confidence",60),1),
                     "last_trade": s.get("last_trade",""), "trades_count": s.get("trades_count",0),
-                    "state": s["state"]}
+                    "state": s["state"], "accuracy": s.get("accuracy",0)}
                 for a, s in AGENT_STATE.items()
             },
         })
@@ -200,6 +205,16 @@ class SummarizeIn(BaseModel):
 
 class BulkTrainIn(BaseModel):
     horizon: str = "swing"; force_retrain: bool = False; agents: list = []
+
+class AgentConfigIn(BaseModel):
+    enabled:          Optional[bool]  = None
+    aggressiveness:   Optional[float] = None
+    signal_threshold: Optional[float] = None
+    max_position_pct: Optional[float] = None
+    stop_loss_pct:    Optional[float] = None
+    take_profit_pct:  Optional[float] = None
+    use_regime_gate:  Optional[bool]  = None
+    weight:           Optional[float] = None
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  API ROUTES  ← must all be defined BEFORE the static file mount
@@ -368,6 +383,33 @@ def api_ensemble():
     if not latest:
         return {"action": "HOLD", "confidence": 0.5, "note": "no signals yet"}
     return ensemble_vote(latest)
+
+# ── Impulses + Agent Config + Regime ─────────────────────────────────────────
+@app.get("/api/impulses")
+def api_impulses(limit: int = 50):
+    return get_impulses(limit)
+
+@app.get("/api/impulses/live")
+def api_live_impulses():
+    return {"impulses": get_live_impulses(), "regime": get_regime()}
+
+@app.get("/api/agents/{abbr}/config")
+def api_get_config(abbr: str):
+    if abbr.upper() not in CATALOGUE: raise HTTPException(404)
+    return AGENT_CONFIG.get(abbr.upper(), {})
+
+@app.patch("/api/agents/{abbr}/config")
+async def api_update_config(abbr: str, body: AgentConfigIn):
+    if abbr.upper() not in CATALOGUE: raise HTTPException(404)
+    updates = {k: v for k, v in body.model_dump().items() if v is not None}
+    cfg     = update_config(abbr.upper(), updates)
+    if abbr.upper() in AGENT_STATE:
+        AGENT_STATE[abbr.upper()]["config"] = cfg
+    return cfg
+
+@app.get("/api/regime")
+def api_regime():
+    return get_regime()
 
 # ── Analytics ─────────────────────────────────────────────────────────────────
 @app.get("/api/analytics/risk")

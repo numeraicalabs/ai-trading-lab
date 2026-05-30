@@ -55,6 +55,15 @@ export const api = {
   risk:         ()         => get('/api/analytics/risk'),
   equity:       (n=80)     => get(`/api/analytics/equity-history?points=${n}`),
   scenario:     ()         => get('/api/analytics/scenario'),
+  // Impulses + Config + Regime
+  impulses:     (n=50)     => get(`/api/impulses?limit=${n}`),
+  liveImpulses: ()         => get('/api/impulses/live'),
+  regime:       ()         => get('/api/regime'),
+  agentConfig:  (a)        => get(`/api/agents/${a}/config`),
+  updateConfig: (a, body)  => fetch(`/api/agents/${a}/config`, {
+                                method:'PATCH',
+                                headers:{'Content-Type':'application/json'},
+                                body:JSON.stringify(body) }).then(r=>r.json()),
   // Ollama
   ollamaStatus: ()         => get('/api/ollama/status'),
   chat:         (body)     => post('/api/chat', body),

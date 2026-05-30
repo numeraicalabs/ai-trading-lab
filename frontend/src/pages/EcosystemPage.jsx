@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import { C, Card, SectionTitle, ProgressBar, Badge, Spinner, TT } from '../components/UI'
+import { ImpulseFlow }     from '../components/ImpulseFlow'
+import { AgentConfigPanel } from '../components/AgentConfigPanel'
 import api from '../lib/api'
 
 const HORIZONS = [
@@ -10,7 +12,7 @@ const HORIZONS = [
   { id:'position', label:'Position 1wk',color:C.green  },
 ]
 
-function AgentRow({ agent, onTrain, onCommentary, busy }) {
+function AgentRow({ agent, onTrain, onCommentary, onConfig, busy }) {
   const ac = (agent.latest_acc||0) > 65 ? C.green : (agent.latest_acc||0) > 50 ? C.yellow : C.red
   const ic = (agent.improvement||0) > 0 ? C.green  : (agent.improvement||0) < 0 ? C.red : C.muted
   return (
@@ -61,6 +63,9 @@ function AgentRow({ agent, onTrain, onCommentary, busy }) {
           <button onClick={() => onCommentary(agent.abbr)} style={{
             padding:'5px 7px', borderRadius:6, fontSize:10, cursor:'pointer',
             background:`${C.purple}22`, border:`1px solid ${C.purple}44`, color:C.purple }}>🤖</button>
+          <button onClick={() => onConfig(agent)} style={{
+            padding:'5px 7px', borderRadius:6, fontSize:10, cursor:'pointer',
+            background:`${C.muted}18`, border:`1px solid ${C.border}`, color:C.muted }}>⚙</button>
         </div>
       </td>
     </tr>
@@ -112,11 +117,16 @@ export default function EcosystemPage({ lastMessage }) {
   const [globalH,    setGlobalH]    = useState('swing')
   const [commentary, setCommentary] = useState({ abbr:'', text:'' })
   const [logs,       setLogs]       = useState([])
+  const [configAgent,setConfigAgent]= useState(null)
+  const [impulses,   setImpulses]   = useState([])
+  const [liveImpulses,setLiveImpulses]=useState({})
+  const [ecoTab,     setEcoTab]     = useState('agents') // agents | impulses
 
   const log = (msg) => setLogs(l => [`[${new Date().toLocaleTimeString()}] ${msg}`, ...l].slice(0, 60))
 
   const fetchAll = useCallback(async () => {
-    const [s, j] = await Promise.all([api.ecoStatus(), api.trainingJobs()])
+    const [s, j, imps] = await Promise.all([api.ecoStatus(), api.trainingJobs(), api.impulses()])
+    if (imps && Array.isArray(imps)) setImpulses(imps.slice(0,100))
     if (s) setStatus(s)
     if (j) setJobs(j)
   }, [])
@@ -126,6 +136,14 @@ export default function EcosystemPage({ lastMessage }) {
 
   useEffect(() => {
     if (!lastMessage) return
+    if (lastMessage.type === 'tick' && lastMessage.impulses) {
+      setImpulses(prev => [...lastMessage.impulses, ...prev].slice(0, 100))
+      if (lastMessage.impulses.length) {
+        const live = {}
+        lastMessage.impulses.forEach(i => { live[`${i.from}→${i.to}`] = i })
+        setLiveImpulses(prev => ({ ...prev, ...live }))
+      }
+    }
     if (lastMessage.type === 'training_progress') {
       const j = lastMessage.job
       log(`${j.agent_abbr} — ${j.stage} (${j.progress}%)`)
@@ -248,10 +266,30 @@ export default function EcosystemPage({ lastMessage }) {
         </div>
       )}
 
+      {/* Eco tabs */}
+      <div style={{ display:'flex', gap:5, marginBottom:16 }}>
+        {[['agents','⚙ Agents'],['impulses','⚡ Impulse Flow']].map(([id,label]) => (
+          <button key={id} onClick={() => setEcoTab(id)} style={{
+            padding:'7px 16px', borderRadius:8, fontSize:12, cursor:'pointer',
+            fontWeight: ecoTab===id?700:400,
+            background: ecoTab===id?`${C.accent}22`:C.surface,
+            border:`1px solid ${ecoTab===id?`${C.accent}66`:C.border}`,
+            color: ecoTab===id?C.accent:C.muted,
+          }}>{label}</button>
+        ))}
+      </div>
+
+      {/* Impulse Flow tab */}
+      {ecoTab === 'impulses' && (
+        <div style={{ marginBottom:20 }}>
+          <ImpulseFlow agents={agents} impulses={impulses} liveImpulses={liveImpulses}/>
+        </div>
+      )}
+
       {/* Agent table */}
-      <Card style={{ marginBottom:20 }}>
+      {ecoTab === 'agents' && <Card style={{ marginBottom:20 }}>
         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:14 }}>
-          <SectionTitle title="Agent Control Panel" sub="Train, retrain, get AI commentary"/>
+          <SectionTitle title="Agent Control Panel" sub="Train, retrain, configure, get AI commentary"/>
           <button onClick={fetchAll} style={{ fontSize:10, background:'none',
             border:`1px solid ${C.border}`, borderRadius:5, padding:'3px 8px',
             color:C.muted, cursor:'pointer' }}>↺</button>
@@ -273,6 +311,17 @@ export default function EcosystemPage({ lastMessage }) {
           </table>
         </div>
       </Card>
+
+      </Card>}
+
+      {/* AgentConfigPanel drawer */}
+      {configAgent && (
+        <AgentConfigPanel
+          agent={configAgent}
+          onClose={() => setConfigAgent(null)}
+          onSaved={(abbr, cfg) => { log(`Config saved for ${abbr}`); setConfigAgent(null) }}
+        />
+      )}
 
       {/* Jobs + Log */}
       <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:16, marginBottom:20 }}>

@@ -18,6 +18,8 @@ import { OllamaChat }      from './components/OllamaChat'
 import { AiInsightsPanel } from './components/AiInsightsPanel'
 // Ecosystem page
 import EcosystemPage       from './pages/EcosystemPage'
+// Impulse flow (used in Network page)
+import { ImpulseFlow }     from './components/ImpulseFlow'
 // Hooks & data
 import { useWebSocket }    from './hooks/useWebSocket'
 import { useAgents }       from './hooks/useAgents'
@@ -199,51 +201,35 @@ function AgentsPage({ agents, loading, onSelect }) {
   )
 }
 
-// ── Network page ───────────────────────────────────────────────────────────────
-function NetworkPage({ agents }) {
-  const cx=360, cy=200, r=155, n=agents.length
-  const nodes = agents.map((a,i) => {
-    const angle = (i/n)*Math.PI*2 - Math.PI/2
-    return { ...a, x: cx+r*Math.cos(angle), y: cy+r*Math.sin(angle) }
-  })
-  const edges = [[0,8],[1,8],[2,3],[4,7],[5,6],[6,7],[0,2],[1,4],[3,5]]
+// ── Network page (live impulse flow) ──────────────────────────────────────────
+function NetworkPage({ agents, impulses, liveImpulses, regime }) {
+  const ensemble = agents.length
+    ? { buy: agents.filter(a => a.last_signal?.action === 'BUY').length,
+        sell: agents.filter(a => a.last_signal?.action === 'SELL').length }
+    : { buy: 7, sell: 2 }
   return (
     <div>
-      <div style={{ marginBottom:20 }}>
-        <h1 style={{ fontSize:22, fontWeight:800, margin:0 }}>Multi-Agent Network</h1>
-        <p style={{ color:C.muted, fontSize:12, margin:'4px 0 0' }}>Signal sharing · Ensemble voting · Collaboration</p>
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:20 }}>
+        <div>
+          <h1 style={{ fontSize:22, fontWeight:800, margin:0 }}>Multi-Agent Network</h1>
+          <p style={{ color:C.muted, fontSize:12, margin:'4px 0 0' }}>Live impulse flow · Signal propagation · Ensemble</p>
+        </div>
+        <div style={{ display:'flex', gap:8 }}>
+          <div style={{ padding:'7px 14px', borderRadius:8, background:`${C.green}18`,
+                        border:`1px solid ${C.green}44`, fontSize:11, color:C.green, fontWeight:700 }}>
+            🟢 {ensemble.buy} BUY
+          </div>
+          <div style={{ padding:'7px 14px', borderRadius:8, background:`${C.red}18`,
+                        border:`1px solid ${C.red}44`, fontSize:11, color:C.red, fontWeight:700 }}>
+            🔴 {ensemble.sell} SELL
+          </div>
+          <div style={{ padding:'7px 14px', borderRadius:8, background:`${C.cyan}18`,
+                        border:`1px solid ${C.cyan}44`, fontSize:11, color:C.cyan, fontWeight:700 }}>
+            🔍 {regime?.label || 'detecting'}
+          </div>
+        </div>
       </div>
-      <Card style={{ marginBottom:16 }}>
-        <svg viewBox="0 0 720 400" style={{ width:'100%', height:'auto' }}>
-          {edges.map(([a,b],i) => <line key={i} x1={nodes[a]?.x} y1={nodes[a]?.y}
-            x2={nodes[b]?.x} y2={nodes[b]?.y} stroke={C.dim} strokeWidth={1} strokeDasharray="3 5" opacity={.6}/>)}
-          {nodes.map(nd => <line key={'c'+nd.abbr} x1={cx} y1={cy} x2={nd.x} y2={nd.y}
-            stroke={nd.color} strokeWidth={.8} opacity={.3}/>)}
-          <circle cx={cx} cy={cy} r={36} fill={`${C.accent}33`} stroke={C.accent} strokeWidth={1.5}/>
-          <text x={cx} y={cy-4} textAnchor="middle" fill={C.accent} fontSize={9} fontFamily="monospace">PORTFOLIO</text>
-          <text x={cx} y={cy+8} textAnchor="middle" fill={C.accent} fontSize={9} fontFamily="monospace">OPTIMIZER</text>
-          <text x={cx} y={cy+22} textAnchor="middle" fontSize={12}>⚖️</text>
-          {nodes.map(nd => (
-            <g key={nd.abbr}>
-              <circle cx={nd.x} cy={nd.y} r={24} fill={`${nd.color}22`} stroke={nd.color} strokeWidth={1.5}/>
-              <text x={nd.x} y={nd.y+1} textAnchor="middle" dominantBaseline="middle" fill={C.text} fontSize={11}>{nd.icon}</text>
-              <text x={nd.x} y={nd.y+32} textAnchor="middle" fill={nd.color} fontSize={8} fontFamily="monospace">{nd.abbr}</text>
-            </g>
-          ))}
-        </svg>
-      </Card>
-      <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:16 }}>
-        {[{t:'Ensemble Signal',v:'LONG',s:'7/9 agents bullish',c:C.green},
-          {t:'Market Regime',  v:'Bull Trending',s:'Confidence 82%',c:C.cyan},
-          {t:'Capital',        v:'64% deployed',s:'$81.5k invested',c:C.yellow}
-        ].map((item,i) => (
-          <Card key={i}>
-            <div style={{ fontSize:10, color:C.muted, textTransform:'uppercase', letterSpacing:1, marginBottom:8 }}>{item.t}</div>
-            <div style={{ fontSize:20, fontWeight:800, color:item.c, marginBottom:5, ...mono }}>{item.v}</div>
-            <div style={{ fontSize:11, color:C.muted }}>{item.s}</div>
-          </Card>
-        ))}
-      </div>
+      <ImpulseFlow agents={agents} impulses={impulses} liveImpulses={liveImpulses} height={440}/>
     </div>
   )
 }
@@ -443,6 +429,9 @@ export default function App() {
   const [trades,        setTrades]        = useState([])
   const [orderOpen,     setOrderOpen]     = useState(false)
   const [orderPrefill,  setOrderPrefill]  = useState(null)
+  const [impulses,      setImpulses]      = useState([])
+  const [liveImpulses,  setLiveImpulses]  = useState({})
+  const [regime,        setRegime]        = useState({ label:'unknown', confidence:0 })
 
   const { connected, lastTick, lastMessage } = useWebSocket()
   const { agents,    loading  }              = useAgents(lastTick)
@@ -464,6 +453,13 @@ export default function App() {
     if (lastTick?.portfolio)   setPortfolio(p => ({ ...p, ...lastTick.portfolio }))
     if (lastTick?.prices)      setPrices(p => ({ ...p, ...lastTick.prices }))
     if (lastTick?.latest_trade) setTrades(t => [lastTick.latest_trade, ...t].slice(0, 300))
+    if (lastTick?.regime)  setRegime(lastTick.regime)
+    if (lastTick?.impulses?.length) {
+      setImpulses(prev => [...lastTick.impulses, ...prev].slice(0, 200))
+      const live = {}
+      lastTick.impulses.forEach(i => { live[`${i.from}→${i.to}`] = i })
+      setLiveImpulses(prev => ({ ...prev, ...live }))
+    }
   }, [lastTick])
 
   const openOrder = useCallback((prefill = null) => { setOrderPrefill(prefill); setOrderOpen(true) }, [])
@@ -475,7 +471,7 @@ export default function App() {
       case 'dashboard':  return <Dashboard  portfolio={portfolio} trades={trades} onOrder={() => openOrder()}/>
       case 'agents':     return <AgentsPage agents={agents} loading={loading} onSelect={setSelectedAgent}/>
       case 'ecosystem':  return <EcosystemPage lastMessage={lastMessage}/>
-      case 'network':    return <NetworkPage agents={agents}/>
+      case 'network':    return <NetworkPage agents={agents} impulses={impulses} liveImpulses={liveImpulses} regime={regime}/>
       case 'analytics':  return <AnalyticsPage agents={agents}/>
       case 'trades':     return <TradesPage trades={trades} onOrder={() => openOrder()}/>
       case 'chat':       return <ChatPage portfolio={portfolio} agents={agents} onOrderSuggested={openOrder}/>
