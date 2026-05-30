@@ -39,52 +39,16 @@ _queue:    asyncio.Queue = asyncio.Queue()
 _jobs:     dict          = {}
 _counter:  int           = 0
 _broadcast: Optional[Callable] = None
-_supabase                = None   # lazy init
 
 
 def set_broadcast(fn: Callable): global _broadcast; _broadcast = fn
 
 
-def _get_supabase():
-    global _supabase
-    if _supabase is not None:
-        return _supabase
-    try:
-        import os
-        url = os.getenv("SUPABASE_URL", "")
-        key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_KEY", "")
-        if not url or not key:
-            return None
-        from supabase import create_client
-        _supabase = create_client(url, key)
-        return _supabase
-    except Exception as e:
-        logger.warning(f"Supabase init failed: {e}")
-        return None
-
-
 def _save_job_to_db(job: Job):
-    """Salva/aggiorna il job su Supabase in modo non-bloccante."""
+    """Salva/aggiorna il job su Supabase tramite db.save_training_job."""
     try:
-        sb = _get_supabase()
-        if not sb:
-            return
-        data = {
-            "id":           job.job_id,
-            "agent_abbr":   job.agent_abbr,
-            "symbol":       job.symbol,
-            "horizon":      job.horizon,
-            "force":        job.force,
-            "status":       job.status,
-            "progress":     job.progress,
-            "stage":        job.stage,
-            "result":       job.result or {},
-            "error":        job.error or "",
-            "created_at":   job.created_at,
-            "started_at":   job.started_at,
-            "completed_at": job.completed_at,
-        }
-        sb.table("training_jobs").upsert(data).execute()
+        from services.db import save_training_job
+        save_training_job(job.to_dict())
     except Exception as e:
         logger.debug(f"DB save job: {e}")
 

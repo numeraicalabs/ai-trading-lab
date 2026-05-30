@@ -330,6 +330,12 @@ async def run_screen(symbols: list = None, horizon: str = "swing",
 
     _screen_cache = result
     _screen_ts    = time.time()
+    # Persist to Supabase
+    try:
+        from services.db import save_scout_screen
+        save_scout_screen(result)
+    except Exception:
+        pass
     return result
 
 
@@ -345,11 +351,11 @@ async def scout_loop():
     await asyncio.sleep(120)   # aspetta 2 min al boot
     logger.info("SCOUT agent loop started")
 
-    from services.agents import _regime
+    from services.agents import get_regime
 
     while True:
         try:
-            regime = _regime.get("label", "unknown")
+            regime = get_regime().get("label", "unknown")
             result = await run_screen(regime=regime)
             logger.info(
                 f"SCOUT screen: {result['screened']} symbols — "

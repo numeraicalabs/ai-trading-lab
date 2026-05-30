@@ -158,15 +158,13 @@ def get_regime() -> dict: return _regime
 
 def _update_regime(signal: dict, abbr: str):
     """REG agent updates shared regime, emits impulses to all other agents."""
-    global _regime
     if abbr != "REG": return
-    _regime = {
-        "label":      ("bull" if signal.get("action") == "BUY" else
-                       "bear" if signal.get("action") == "SELL" else "neutral"),
-        "confidence": signal.get("confidence", 0.5),
-        "direction":  signal.get("action", "HOLD"),
-        "ts":         signal.get("ts"),
-    }
+    # Mutate in-place so all modules that imported _regime see the update
+    _regime["label"]      = ("bull" if signal.get("action") == "BUY" else
+                              "bear" if signal.get("action") == "SELL" else "neutral")
+    _regime["confidence"] = signal.get("confidence", 0.5)
+    _regime["direction"]  = signal.get("action", "HOLD")
+    _regime["ts"]         = signal.get("ts")
     # Broadcast impulse to all live agents
     for dst in AGENT_STATE:
         if dst == "REG": continue

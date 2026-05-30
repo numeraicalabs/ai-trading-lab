@@ -71,6 +71,8 @@ from services.scheduler    import (scheduler_loop, get_history, get_all_history,
                                     get_retrain_log, notify_regime_change,
                                     AUTO_RETRAIN_ENABLED, MIN_ACCURACY, SCHEDULER_INTERVAL)
 from services.scout        import (run_screen, get_cached_screen, scout_loop, SCREEN_UNIVERSE)
+from services.reports      import (generate_portfolio_report, generate_scout_report,
+                                    generate_backtest_report, list_reports, get_report_html)
 from services.db           import (health_check as db_health, get_client as db_client,
                                     save_trade as db_save_trade,
                                     save_model_version, load_recent_trades)
@@ -207,8 +209,7 @@ async def agent_bg_loop():
             await ws_manager.broadcast({"type": "signal", "signal": sig})
             # Notify scheduler of regime changes
             if abbr == "REG" and sig.get("action") != "HOLD":
-                from services.agents import _regime
-                notify_regime_change(_regime.get("label","unknown"))
+                notify_regime_change(get_regime().get("label","unknown"))
         except Exception as e:
             logger.warning(f"agent_bg [{abbr}]: {e}")
 
@@ -716,31 +717,83 @@ class ScoutIn(BaseModel):
 
 @app.post("/api/scout/screen")
 async def api_scout_screen(body: ScoutIn):
-    if not body.force:
-        cached = get_cached_screen()
-        if cached:
-            return cached
-    from services.agents import _regime
-    regime = _regime.get("label", "unknown")
-    result = await run_screen(
-        symbols=body.symbols or None,
-        horizon=body.horizon,
-        top_n=body.top_n,
-        regime=regime,
-    )
-    return result
+    try:
+        if not body.force:
+            cached = get_cached_screen()
+            if cached:
+                return cached
+        regime = get_regime().get("label", "unknown")
+        result = await run_screen(
+            symbols=body.symbols or None,
+            horizon=body.horizon,
+            top_n=body.top_n,
+            regime=regime,
+        )
+        return result
+    except Exception as e:
+        logger.error(f"scout/screen error: {e}", exc_info=True)
+        raise HTTPException(500, f"Scout screen error: {str(e)[:200]}")
 
 @app.get("/api/scout/latest")
 def api_scout_latest():
-    cached = get_cached_screen()
-    if not cached:
-        return {"message": "No screen run yet — POST /api/scout/screen to start"}
-    return cached
+    try:
+        cached = get_cached_screen()
+        if not cached:
+            return {"message": "No screen run yet — POST /api/scout/screen to start",
+                    "status": "empty"}
+        return cached
+    except Exception as e:
+        logger.error(f"scout/latest error: {e}")
+        raise HTTPException(500, f"Scout error: {str(e)}")
 
 @app.get("/api/scout/universe")
 def api_scout_universe():
     return {"groups": SCREEN_UNIVERSE,
             "total": sum(len(v) for v in SCREEN_UNIVERSE.values())}
+
+# ── Reports ──────────────────────────────────────────────────────────────────
+@app.get("/api/reports")
+def api_list_reports():
+    return list_reports()
+
+@app.post("/api/reports/portfolio")
+async def api_gen_portfolio_report():
+    from services.agents import get_all as agents_all
+    rid = await asyncio.get_event_loop().run_in_executor(
+        None, generate_portfolio_report, portfolio, agents_all(), trades[:50]
+    )
+    return {"report_id": rid, "url": f"/report/{rid}"}
+
+@app.post("/api/reports/scout")
+async def api_gen_scout_report():
+    cached = get_cached_screen()
+    if not cached:
+        raise HTTPException(400, "No scout screen available — run /api/scout/screen first")
+    rid = await asyncio.get_event_loop().run_in_executor(
+        None, generate_scout_report, cached
+    )
+    return {"report_id": rid, "url": f"/report/{rid}"}
+
+@app.post("/api/reports/backtest/{abbr}/{symbol}/{horizon}")
+async def api_gen_backtest_report(abbr: str, symbol: str, horizon: str):
+    r = get_result(abbr.upper(), symbol.upper(), horizon)
+    if not r:
+        raise HTTPException(404, "No backtest result found — run backtest first")
+    rid = await asyncio.get_event_loop().run_in_executor(
+        None, generate_backtest_report, r
+    )
+    return {"report_id": rid, "url": f"/report/{rid}"}
+
+# ── Report viewer (public HTML page) ──────────────────────────────────────────
+@app.get("/report/{report_id}", include_in_schema=False)
+async def serve_report(report_id: str):
+    html = await asyncio.get_event_loop().run_in_executor(
+        None, get_report_html, report_id
+    )
+    if not html:
+        raise HTTPException(404, f"Report {report_id} not found")
+    from fastapi.responses import HTMLResponse
+    return HTMLResponse(content=html)
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  STATIC FILES + SPA CATCH-ALL  ← must come AFTER all /api routes

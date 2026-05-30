@@ -8,6 +8,7 @@
  *   - Filtrare per conviction / settore / direzione
  */
 import { useState, useEffect, useCallback } from 'react'
+import { ReportButton } from '../components/ReportButton'
 import { RadarChart, Radar, PolarGrid, PolarAngleAxis,
          BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import { C, Card, SectionTitle, Badge, ProgressBar, Spinner, TT } from '../components/UI'
@@ -348,6 +349,7 @@ export default function ScoutPage() {
                 color: horizon===h ? '#f0abfc' : C.muted,
               }}>{h}</button>
             ))}
+            <ReportButton page="scout"/>
             <button onClick={runScreen} disabled={running} style={{
               padding:'9px 20px', borderRadius:8, cursor:'pointer', fontSize:13, fontWeight:800,
               background:`${'#f0abfc'}22`, border:`1px solid ${'#f0abfc'}66`, color:'#f0abfc',

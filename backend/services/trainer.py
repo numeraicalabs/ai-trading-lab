@@ -259,6 +259,12 @@ def train(abbr: str, symbol: str, horizon: str,
     }
     joblib.dump(meta, _meta_path(abbr, symbol, horizon))
     logger.info(f"Trained {abbr}/{symbol}/{horizon}: OOS={oos_acc:.3f} CV={cv_mean:.3f}±{cv_std:.3f}")
+    # Persist to Supabase
+    try:
+        from services.db import save_model_version
+        save_model_version(meta)
+    except Exception:
+        pass
     return meta
 
 

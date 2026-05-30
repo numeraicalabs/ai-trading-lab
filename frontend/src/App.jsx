@@ -19,6 +19,7 @@ import { AiInsightsPanel } from './components/AiInsightsPanel'
 // Ecosystem page
 import EcosystemPage       from './pages/EcosystemPage'
 // Training Lab
+import { ReportButton }     from './components/ReportButton'
 import TrainingLabPage     from './pages/TrainingLabPage'
 // Agent Learning Monitor
 import AgentLearningPage   from './pages/AgentLearningPage'
@@ -93,10 +94,13 @@ function Dashboard({ portfolio, trades, onOrder }) {
           <h1 style={{ fontSize:22, fontWeight:800, margin:0 }}>Portfolio Overview</h1>
           <p style={{ color:C.muted, fontSize:12, margin:'4px 0 0' }}>AI multi-agent paper trading · Real yfinance data · 9 ML models</p>
         </div>
-        <button onClick={onOrder} style={{ padding:'9px 18px', borderRadius:8, cursor:'pointer',
-          background:`${C.accent}22`, border:`1px solid ${C.accent}66`, color:C.accent, fontSize:12, fontWeight:700 }}>
-          ⚡ New Trade
-        </button>
+        <div style={{ display:'flex', gap:8 }}>
+          <ReportButton page="dashboard"/>
+          <button onClick={onOrder} style={{ padding:'9px 18px', borderRadius:8, cursor:'pointer',
+            background:`${C.accent}22`, border:`1px solid ${C.accent}66`, color:C.accent, fontSize:12, fontWeight:700 }}>
+            ⚡ New Trade
+          </button>
+        </div>
       </div>
       <KpiBar p={portfolio}/>
       <div style={{ display:'grid', gridTemplateColumns:'2fr 1fr', gap:16, marginBottom:16 }}>
