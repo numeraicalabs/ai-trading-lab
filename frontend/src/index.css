@@ -1,45 +1,86 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
-  --bg:      #0a0e17;
-  --surface: #111827;
-  --card:    #141c2e;
-  --border:  #1e2d47;
-  --accent:  #3b82f6;
-  --green:   #10b981;
-  --red:     #ef4444;
-  --yellow:  #f59e0b;
-  --purple:  #8b5cf6;
-  --cyan:    #06b6d4;
-  --text:    #e2e8f0;
-  --muted:   #64748b;
-  --dim:     #334155;
+  --bg:       #050911;
+  --surface:  #0d1424;
+  --card:     #111c30;
+  --card2:    #16233a;
+  --border:   #1e3050;
+  --border2:  #243a5e;
+  --accent:   #3b82f6;
+  --green:    #10b981;
+  --red:      #ef4444;
+  --yellow:   #f59e0b;
+  --purple:   #8b5cf6;
+  --cyan:     #06b6d4;
+  --pink:     #f0abfc;
+  --text:     #e2e8f0;
+  --muted:    #64748b;
+  --dim:      #334155;
+  --glow-b:   rgba(59,130,246,0.15);
+  --glow-g:   rgba(16,185,129,0.12);
 }
 
 html  { font-size: 14px; }
-body  { background: var(--bg); color: var(--text);
-        font-family: 'IBM Plex Sans', 'Segoe UI', sans-serif;
-        -webkit-font-smoothing: antialiased; }
+body  {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'IBM Plex Sans', 'Segoe UI', sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
 
 ::-webkit-scrollbar       { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track  { background: transparent; }
 ::-webkit-scrollbar-thumb  { background: var(--border); border-radius: 99px; }
+::-webkit-scrollbar-thumb:hover { background: var(--border2); }
 
-input, select, button { font-family: inherit; }
-input::placeholder    { color: var(--muted); }
+input, select, button, textarea { font-family: inherit; }
+input::placeholder { color: var(--muted); }
+button { transition: opacity .15s, transform .1s; }
+button:active { transform: scale(.97); }
 
-/* Ticker tape animation */
+/* Ticker */
 @keyframes ticker { 0% { transform: translateX(0) } 100% { transform: translateX(-50%) } }
 .ticker-inner { display: flex; gap: 28px; padding-left: 16px;
                 animation: ticker 35s linear infinite; white-space: nowrap;
                 width: max-content; }
 .ticker-inner:hover { animation-play-state: paused; }
 
-/* Utility animations */
-@keyframes fadeIn { from { opacity:0; transform:translateY(6px) } to { opacity:1; transform:none } }
-@keyframes spin   { to { transform: rotate(360deg) } }
-@keyframes pulse  { 0%,100% { opacity:1 } 50% { opacity:.4 } }
+/* Animations */
+@keyframes fadeIn    { from { opacity:0; transform:translateY(8px) } to { opacity:1; transform:none } }
+@keyframes fadeInUp  { from { opacity:0; transform:translateY(20px)} to { opacity:1; transform:none } }
+@keyframes spin      { to { transform: rotate(360deg) } }
+@keyframes pulse     { 0%,100% { opacity:1 } 50% { opacity:.35 } }
+@keyframes glow      { 0%,100% { box-shadow: 0 0 8px var(--glow-b) } 50% { box-shadow: 0 0 20px var(--glow-b) } }
+@keyframes shimmer   { from { background-position:-200% 0 } to { background-position:200% 0 } }
+@keyframes float     { 0%,100% { transform: translateY(0) } 50% { transform: translateY(-4px) } }
 
-.fade-in { animation: fadeIn .2s ease forwards; }
-.spin    { animation: spin .7s linear infinite; }
-.pulse   { animation: pulse 2s ease-in-out infinite; }
+.fade-in   { animation: fadeIn .25s ease forwards; }
+.fade-up   { animation: fadeInUp .3s ease forwards; }
+.spin      { animation: spin .7s linear infinite; }
+.pulse     { animation: pulse 2.2s ease-in-out infinite; }
+.float     { animation: float 3s ease-in-out infinite; }
+
+/* Shimmer skeleton */
+.skeleton {
+  background: linear-gradient(90deg, var(--card) 25%, var(--card2) 50%, var(--card) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s ease infinite;
+  border-radius: 6px;
+}
+
+/* Glass card */
+.glass {
+  background: rgba(17, 28, 48, 0.7);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(30, 48, 80, 0.8);
+}
+
+/* Neon border on hover */
+.neon-hover { transition: box-shadow .2s, border-color .2s; }
+.neon-hover:hover {
+  box-shadow: 0 0 20px rgba(59,130,246,.2), 0 4px 24px rgba(0,0,0,.4);
+}
+
+/* Number font */
+.num { font-family: 'JetBrains Mono', 'Fira Code', monospace; }

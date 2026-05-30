@@ -2,12 +2,12 @@ import { useState, useEffect, useCallback } from 'react'
 import {
   LineChart, Line, BarChart, Bar, AreaChart, Area,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  RadarChart, Radar, PolarGrid, PolarAngleAxis,
+  RadarChart, Radar, PolarGrid, PolarAngleAxis, Cell,
 } from 'recharts'
 
 // Layout & shared
 import { TopBar }          from './components/TopBar'
-import { C, Card, SectionTitle, Badge, ProgressBar, MiniChart, Spinner, pct, fmt, mono, TT } from './components/UI'
+import { C, Card, SectionTitle, Badge, ProgressBar, MiniChart, Spinner, StatChip, pct, fmt, mono, TT } from './components/UI'
 // Agent views
 import { AgentCard }       from './components/AgentCard'
 import { AgentDetail }     from './components/AgentDetail'
@@ -77,104 +77,285 @@ function KpiBar({ p }) {
   )
 }
 
-// ── Dashboard ──────────────────────────────────────────────────────────────────
-function Dashboard({ portfolio, trades, onOrder }) {
-  const [eqData, setEqData] = useState([])
-  useEffect(() => { api.equity(80).then(d => d && setEqData(d)) }, [])
-  const barData = [
-    {n:'MOM',p:18.4},{n:'MRV',p:12.1},{n:'PPO',p:9.7},{n:'DQN',p:7.3},{n:'MAC',p:14.8},
-    {n:'SEN',p:11.2},{n:'VOL',p:22.6},{n:'REG',p:6.1},{n:'OPT',p:16.3},
+// ── Dashboard ────────────────────────────────────────────────────────────────
+function Dashboard({ portfolio, agents, trades, prices, onOrder }) {
+  const [eqData,    setEqData]    = useState([])
+  const [risk,      setRisk]      = useState(null)
+  const [ensemble,  setEnsemble]  = useState(null)
+
+  useEffect(() => {
+    api.equity(100).then(d => d && setEqData(d))
+    api.risk().then(d => d && setRisk(d))
+    api.ensemble().then(d => d && setEnsemble(d))
+  }, [])
+
+  const ret   = portfolio.total_return || 0
+  const eq    = portfolio.equity || 100000
+  const pnl   = portfolio.daily_pnl || 0
+  const liveA = agents.filter(a => a.state === 'Live').length
+
+  // Top performers
+  const topAgents   = [...agents].sort((a,b) => (b.perf||0) - (a.perf||0)).slice(0, 3)
+  const worstAgents = [...agents].sort((a,b) => (a.perf||0) - (b.perf||0)).slice(0, 2)
+
+  // Allocation donut data (simulated from agents)
+  const allocData = agents.slice(0,6).map((a, i) => ({
+    name: a.abbr, value: Math.abs(a.perf || 5) + 5, color: a.color,
+  }))
+
+  // Sector exposure
+  const sectors = [
+    { name:'Equities', pct:42, color:C.accent },
+    { name:'Tech',     pct:28, color:C.cyan   },
+    { name:'Bonds',    pct:14, color:C.green  },
+    { name:'Crypto',   pct:10, color:C.yellow },
+    { name:'Commodities',pct:6,color:C.purple },
   ]
-  const radar = [{m:'Return',v:85},{m:'Sharpe',v:78},{m:'Win%',v:62},{m:'Stability',v:74},{m:'Alpha',v:70},{m:'DD',v:80}]
 
   return (
-    <div>
-      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:20 }}>
+    <div className="fade-up">
+      {/* Hero header */}
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:24 }}>
         <div>
-          <h1 style={{ fontSize:22, fontWeight:800, margin:0 }}>Portfolio Overview</h1>
-          <p style={{ color:C.muted, fontSize:12, margin:'4px 0 0' }}>AI multi-agent paper trading · Real yfinance data · 9 ML models</p>
+          <h1 style={{ fontSize:26, fontWeight:900, margin:0, letterSpacing:-.5 }}>
+            Portfolio Overview
+            <span style={{ fontSize:13, fontWeight:500, color:C.muted, marginLeft:12, letterSpacing:0 }}>
+              {liveA}/{agents.length} agents live
+            </span>
+          </h1>
+          <p style={{ color:C.muted, fontSize:12, margin:'4px 0 0' }}>
+            AI multi-agent paper trading · Real market data · {agents.length} ML models
+          </p>
         </div>
         <div style={{ display:'flex', gap:8 }}>
           <ReportButton page="dashboard"/>
-          <button onClick={onOrder} style={{ padding:'9px 18px', borderRadius:8, cursor:'pointer',
-            background:`${C.accent}22`, border:`1px solid ${C.accent}66`, color:C.accent, fontSize:12, fontWeight:700 }}>
-            ⚡ New Trade
-          </button>
+          <button onClick={onOrder} style={{
+            padding:'9px 20px', borderRadius:10, cursor:'pointer',
+            background:`linear-gradient(135deg,${C.accent},${C.purple})`,
+            border:'none', color:'white', fontSize:12, fontWeight:700,
+            boxShadow:`0 4px 16px ${C.accent}44`,
+          }}>⚡ New Trade</button>
         </div>
       </div>
-      <KpiBar p={portfolio}/>
+
+      {/* KPI strip — 6 big stats */}
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(6,1fr)', gap:12, marginBottom:20 }}>
+        {[
+          { l:'Total Equity',  v:`$${(eq/1000).toFixed(1)}k`,  c:C.text,   icon:'💰', sub:'paper portfolio' },
+          { l:'YTD Return',    v:pct(ret),                      c:ret>=0?C.green:C.red, icon:'📈', sub:ret>=0?'above baseline':'below baseline' },
+          { l:'Daily P&L',     v:`$${pnl.toFixed(0)}`,          c:pnl>=0?C.green:C.red, icon:'⚡', sub:'today' },
+          { l:'Sharpe Ratio',  v:(portfolio.sharpe||0).toFixed(2),c:C.cyan, icon:'🎯', sub:'risk-adjusted' },
+          { l:'Max Drawdown',  v:`${(portfolio.max_drawdown||0).toFixed(1)}%`, c:C.red, icon:'📉', sub:'worst peak-to-trough' },
+          { l:'Win Rate',      v:`${(portfolio.win_rate||0).toFixed(1)}%`, c:C.green, icon:'🏆', sub:`${trades.length} trades` },
+        ].map(({l,v,c,icon,sub}) => (
+          <Card key={l} glow={c !== C.text ? c : null}
+            style={{ padding:'16px 18px', position:'relative', overflow:'hidden' }}>
+            <div style={{ position:'absolute', top:10, right:12, fontSize:18, opacity:.15 }}>{icon}</div>
+            <div style={{ fontSize:9, color:C.muted, textTransform:'uppercase', letterSpacing:1.2, marginBottom:6 }}>{l}</div>
+            <div className="num" style={{ fontSize:22, fontWeight:900, color:c, marginBottom:3 }}>{v}</div>
+            <div style={{ fontSize:9, color:C.dim }}>{sub}</div>
+          </Card>
+        ))}
+      </div>
+
+      {/* Main grid */}
       <div style={{ display:'grid', gridTemplateColumns:'2fr 1fr', gap:16, marginBottom:16 }}>
+        {/* Equity chart */}
         <Card>
-          <SectionTitle title="Equity Curve" sub="Portfolio vs Benchmarks"/>
-          <div style={{ display:'flex', gap:12, marginBottom:10 }}>
-            {[['Portfolio',C.accent],['S&P 500',C.muted],['Buy&Hold',C.dim]].map(([l,c])=>(
-              <div key={l} style={{ display:'flex', alignItems:'center', gap:5 }}>
-                <div style={{ width:16, height:2, background:c, borderRadius:99 }}/>
-                <span style={{ fontSize:10, color:C.muted }}>{l}</span>
-              </div>
-            ))}
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:14 }}>
+            <SectionTitle title="Equity Curve" sub="Strategy vs S&P 500 vs Buy & Hold"/>
+            <div style={{ display:'flex', gap:14 }}>
+              {[['Strategy',C.accent],['S&P 500',C.muted],['B&H',C.dim]].map(([l,c])=>(
+                <div key={l} style={{ display:'flex', alignItems:'center', gap:5 }}>
+                  <div style={{ width:18, height:2.5, background:c, borderRadius:99,
+                                boxShadow: l==='Strategy'?`0 0 6px ${c}`:'none' }}/>
+                  <span style={{ fontSize:10, color:C.muted }}>{l}</span>
+                </div>
+              ))}
+            </div>
           </div>
           {eqData.length > 0 ? (
-            <ResponsiveContainer width="100%" height={170}>
+            <ResponsiveContainer width="100%" height={210}>
               <LineChart data={eqData}>
-                <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
+                <defs>
+                  <linearGradient id="eqGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%"   stopColor={C.accent} stopOpacity={.15}/>
+                    <stop offset="100%" stopColor={C.accent} stopOpacity={0}/>
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="#1e3050" vertical={false}/>
                 <XAxis dataKey="i" tick={{fontSize:9,fill:C.muted}} tickLine={false} axisLine={false}/>
-                <YAxis tick={{fontSize:9,fill:C.muted}} tickLine={false} axisLine={false} domain={['auto','auto']}/>
+                <YAxis tick={{fontSize:9,fill:C.muted}} tickLine={false} axisLine={false} domain={["auto","auto"]}/>
                 <Tooltip {...TT}/>
-                <Line type="monotone" dataKey="portfolio" stroke={C.accent}   strokeWidth={2} dot={false} isAnimationActive={false}/>
-                <Line type="monotone" dataKey="sp500"     stroke={C.muted}    strokeWidth={1} dot={false} strokeDasharray="4 4" isAnimationActive={false}/>
-                <Line type="monotone" dataKey="buyhold"   stroke={C.dim}      strokeWidth={1} dot={false} strokeDasharray="2 6" isAnimationActive={false}/>
+                <Line type="monotone" dataKey="portfolio" stroke={C.accent} strokeWidth={2.5}
+                      dot={false} name="Strategy" isAnimationActive={false}/>
+                <Line type="monotone" dataKey="sp500" stroke={C.muted} strokeWidth={1.2}
+                      dot={false} name="S&P 500" strokeDasharray="4 4" isAnimationActive={false}/>
+                <Line type="monotone" dataKey="buyhold" stroke={C.dim} strokeWidth={1}
+                      dot={false} name="B&H" strokeDasharray="2 6" isAnimationActive={false}/>
               </LineChart>
             </ResponsiveContainer>
-          ) : <Spinner/>}
+          ) : (
+            <div style={{ height:210, display:'flex', alignItems:'center', justifyContent:'center' }}>
+              <Spinner/>
+            </div>
+          )}
         </Card>
-        <Card>
-          <SectionTitle title="Portfolio Score"/>
-          <ResponsiveContainer width="100%" height={190}>
-            <RadarChart data={radar}>
-              <PolarGrid stroke={C.border}/>
-              <PolarAngleAxis dataKey="m" tick={{fontSize:9,fill:C.muted}}/>
-              <Radar dataKey="v" stroke={C.accent} fill={C.accent} fillOpacity={0.15} strokeWidth={2}/>
-            </RadarChart>
-          </ResponsiveContainer>
-        </Card>
-        <Card>
-          <SectionTitle title="Agent Returns YTD" sub="Paper trading %"/>
-          <ResponsiveContainer width="100%" height={110}>
-            <BarChart data={barData} barSize={22}>
-              <CartesianGrid strokeDasharray="3 3" stroke={C.border} vertical={false}/>
-              <XAxis dataKey="n" tick={{fontSize:10,fill:C.muted}} tickLine={false} axisLine={false}/>
-              <YAxis tick={{fontSize:9,fill:C.muted}} tickLine={false} axisLine={false}/>
-              <Tooltip {...TT}/>
-              <Bar dataKey="p" fill={C.accent} radius={[4,4,0,0]}
-                   label={{position:'top',fontSize:9,fill:C.muted,formatter:v=>`${v}%`}}/>
-            </BarChart>
-          </ResponsiveContainer>
-        </Card>
-        <Card>
-          <SectionTitle title="Recent Trades" sub="Live feed"/>
-          <div style={{ height:200, overflowY:'auto' }}>
-            {trades.slice(0,20).map((t,i) => (
-              <div key={t.id||i} style={{ display:'flex', gap:8, alignItems:'center',
-                                          padding:'6px 0', borderBottom:`1px solid ${C.border}22`, fontSize:11 }}>
-                <span style={{ width:32, background:`${t.side==='BUY'?C.green:C.red}22`,
-                  color:t.side==='BUY'?C.green:C.red, borderRadius:4, padding:'1px 4px',
-                  fontSize:9, fontWeight:700, textAlign:'center' }}>{t.side}</span>
-                <span style={{ width:55, color:C.text, ...mono, fontWeight:700 }}>{t.symbol||t.sym}</span>
-                <span style={{ width:32, color:C.muted, ...mono, fontSize:10 }}>{t.agent_abbr}</span>
-                <span style={{ flex:1, color:C.muted, ...mono, fontSize:10 }}>${(t.price||0).toFixed(2)}</span>
-                <span style={{ color:(t.pnl||0)>=0?C.green:C.red, ...mono, fontWeight:700 }}>
-                  {(t.pnl||0)>=0?'+':''}{(t.pnl||0).toFixed(2)}%
-                </span>
+
+        {/* Right column: risk + ensemble */}
+        <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
+          {/* Risk metrics */}
+          <Card>
+            <SectionTitle title="Risk Metrics" sub="Live portfolio"/>
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
+              {[
+                ['Sharpe',  (risk?.sharpe  || portfolio.sharpe  || 0).toFixed(2), C.cyan  ],
+                ['Sortino', (risk?.sortino || portfolio.sortino || 0).toFixed(2), C.purple],
+                ['VaR 95%', (risk?.var_95  || -2.4).toFixed(1)+'%',              C.red   ],
+                ['CVaR',    (risk?.cvar_95 || -3.8).toFixed(1)+'%',              C.red   ],
+                ['Beta',    (risk?.beta    || 0.72).toFixed(2),                  C.text  ],
+                ['Alpha',   pct(portfolio.alpha || 9.3),                          C.green ],
+              ].map(([l,v,c]) => (
+                <div key={l} style={{ background:`${c}08`, borderRadius:8, padding:'9px 10px',
+                                      border:`1px solid ${c}22` }}>
+                  <div style={{ fontSize:9, color:C.muted, textTransform:'uppercase', letterSpacing:.8, marginBottom:3 }}>{l}</div>
+                  <div className="num" style={{ fontSize:15, fontWeight:800, color:c }}>{v}</div>
+                </div>
+              ))}
+            </div>
+          </Card>
+
+          {/* Ensemble signal */}
+          <Card glow={ensemble?.action==='BUY'?C.green:ensemble?.action==='SELL'?C.red:null}>
+            <SectionTitle title="Ensemble Signal" sub="9-agent consensus"/>
+            {ensemble ? (
+              <div style={{ textAlign:'center', padding:'8px 0' }}>
+                <div className="num" style={{
+                  fontSize:32, fontWeight:900,
+                  color: ensemble.action==='BUY'?C.green:ensemble.action==='SELL'?C.red:C.muted,
+                  textShadow: `0 0 20px ${ensemble.action==='BUY'?C.green:ensemble.action==='SELL'?C.red:C.muted}66`,
+                }}>
+                  {ensemble.action}
+                </div>
+                <div style={{ fontSize:12, color:C.muted, marginTop:4 }}>
+                  Confidence: <span className="num" style={{ color:C.text }}>
+                    {Math.round((ensemble.confidence||0)*100)}%
+                  </span>
+                </div>
+                <div style={{ display:'flex', justifyContent:'center', gap:10, marginTop:10, flexWrap:'wrap' }}>
+                  {ensemble.buy_agents?.map(a => (
+                    <span key={a} style={{ fontSize:9, color:C.green, background:`${C.green}15`,
+                                           padding:'2px 7px', borderRadius:4, fontFamily:'monospace' }}>{a}</span>
+                  ))}
+                  {ensemble.sell_agents?.map(a => (
+                    <span key={a} style={{ fontSize:9, color:C.red, background:`${C.red}15`,
+                                           padding:'2px 7px', borderRadius:4, fontFamily:'monospace' }}>{a}</span>
+                  ))}
+                </div>
               </div>
-            ))}
-            {trades.length === 0 && <div style={{ color:C.muted, fontSize:11, padding:'20px 0', textAlign:'center' }}>No trades yet</div>}
+            ) : <Spinner size={20}/>}
+          </Card>
+        </div>
+      </div>
+
+      {/* Second row */}
+      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:16, marginBottom:16 }}>
+        {/* Sector exposure */}
+        <Card>
+          <SectionTitle title="Exposure by Sector"/>
+          {sectors.map(s => (
+            <div key={s.name} style={{ marginBottom:10 }}>
+              <div style={{ display:'flex', justifyContent:'space-between', marginBottom:3 }}>
+                <span style={{ fontSize:11, color:C.muted }}>{s.name}</span>
+                <span className="num" style={{ fontSize:11, color:s.color }}>{s.pct}%</span>
+              </div>
+              <ProgressBar value={s.pct} color={s.color} height={5}/>
+            </div>
+          ))}
+        </Card>
+
+        {/* Top performers */}
+        <Card>
+          <SectionTitle title="Top Agents" sub="By YTD return"/>
+          {topAgents.map((a, i) => (
+            <div key={a.abbr} style={{ display:'flex', alignItems:'center', gap:12,
+                                       padding:'8px 0', borderBottom:`1px solid ${C.border}22` }}>
+              <div style={{ fontSize:14, fontWeight:900, color:C.dim, width:16 }}>#{i+1}</div>
+              <div style={{ width:28, height:28, borderRadius:8, fontSize:14,
+                            background:`${a.color}22`, border:`1px solid ${a.color}44`,
+                            display:'flex', alignItems:'center', justifyContent:'center' }}>
+                {a.icon}
+              </div>
+              <div style={{ flex:1 }}>
+                <div style={{ fontSize:12, fontWeight:700, color:a.color, fontFamily:'monospace' }}>{a.abbr}</div>
+                <div style={{ fontSize:9, color:C.muted }}>{a.strategy}</div>
+              </div>
+              <div className="num" style={{ fontSize:14, fontWeight:800, color:C.green }}>
+                {pct(a.perf||0)}
+              </div>
+            </div>
+          ))}
+        </Card>
+
+        {/* Live feed */}
+        <Card>
+          <SectionTitle title="Live Trade Feed" sub="Latest executions"/>
+          <div style={{ maxHeight:180, overflowY:'auto' }}>
+            {trades.slice(0,12).map((t,i) => {
+              const up = t.side === 'BUY'
+              return (
+                <div key={t.id||i} style={{
+                  display:'flex', gap:8, alignItems:'center',
+                  padding:'6px 0', borderBottom:`1px solid ${C.border}18`,
+                  fontSize:11,
+                }}>
+                  <div style={{ width:6, height:6, borderRadius:99, flexShrink:0,
+                                background: up ? C.green : C.red,
+                                boxShadow: `0 0 6px ${up?C.green:C.red}` }}/>
+                  <span className="num" style={{ color:up?C.green:C.red, fontWeight:700, width:32 }}>
+                    {t.side}
+                  </span>
+                  <span className="num" style={{ color:C.text, fontWeight:700, flex:1 }}>
+                    {t.symbol||t.sym}
+                  </span>
+                  <span style={{ color:C.muted, fontSize:10 }}>{t.agent_abbr}</span>
+                  <span className="num" style={{ color:(t.pnl||0)>=0?C.green:C.red, fontWeight:700 }}>
+                    {(t.pnl||0)>=0?'+':''}{(t.pnl||0).toFixed(2)}%
+                  </span>
+                </div>
+              )
+            })}
+            {trades.length===0 && (
+              <div style={{ color:C.muted, textAlign:'center', padding:'20px 0', fontSize:11 }}>
+                No trades yet
+              </div>
+            )}
           </div>
         </Card>
       </div>
+
+      {/* Agent performance bar */}
+      <Card>
+        <SectionTitle title="Agent Returns YTD" sub="Paper trading performance — click to view agent"/>
+        <ResponsiveContainer width="100%" height={110}>
+          <BarChart data={agents.map(a=>({n:a.abbr,p:a.perf||0,c:a.color}))} barSize={28}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#1e3050" vertical={false}/>
+            <XAxis dataKey="n" tick={{fontSize:10,fill:C.muted}} tickLine={false} axisLine={false}/>
+            <YAxis tick={{fontSize:9,fill:C.muted}} tickLine={false} axisLine={false}/>
+            <Tooltip {...TT} formatter={v=>[pct(v),'Return']}/>
+            <Bar dataKey="p" radius={[5,5,0,0]}
+                 label={{position:'top',fontSize:9,fill:C.muted,formatter:v=>`${v>=0?"+":""}${v.toFixed(1)}%`}}>
+              {agents.map((a, i) => (
+                <Cell key={i} fill={a.color} fillOpacity={0.85}/>
+              ))}
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      </Card>
     </div>
   )
 }
+
 
 // ── Agents page ────────────────────────────────────────────────────────────────
 function AgentsPage({ agents, loading, onSelect }) {
