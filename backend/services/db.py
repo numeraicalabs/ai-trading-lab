@@ -126,6 +126,7 @@ def save_model_version(meta: dict):
         "feature_cols":        meta.get("feature_cols", []),
         "feature_importance":  fi,
         "model_path":          meta.get("model_path", ""),
+        "version_num":         1,
         "is_active":           True,
     }
     def _do():
