@@ -1,13 +1,34 @@
 -- ============================================================
--- AI Trading Lab — Database Setup
--- HOW TO RUN: Supabase Dashboard → SQL Editor → paste & run
--- Do NOT use Supabase CLI (supabase db push) for this file.
+-- AI Trading Lab — COMPLETE DATABASE SETUP (v3)
+-- Run this ONCE in: Supabase Dashboard → SQL Editor → Run
+-- Safe to re-run (uses IF NOT EXISTS + DROP IF EXISTS)
 -- ============================================================
 
--- ── Tables ────────────────────────────────────────────────────────────────────
+-- ── 1. Drop all policies first (avoids "already exists" errors) ──────────────
+
+do $drop_policies$
+declare
+  tbl text;
+  pol text;
+begin
+  for tbl, pol in
+    select table_name, policyname
+    from pg_policies
+    where schemaname = 'public'
+      and table_name in (
+        'trades','training_jobs','model_versions',
+        'agent_snapshots','portfolio_snapshots',
+        'scout_screens','chat_messages'
+      )
+  loop
+    execute format('drop policy if exists %I on %I', pol, tbl);
+  end loop;
+end $drop_policies$;
+
+-- ── 2. Create tables ──────────────────────────────────────────────────────────
 
 create table if not exists trades (
-  id            uuid primary key default gen_random_uuid(),
+  id            uuid        primary key default gen_random_uuid(),
   agent_abbr    text        not null,
   symbol        text        not null,
   side          text        not null,
@@ -43,19 +64,19 @@ create table if not exists training_jobs (
 );
 
 create table if not exists model_versions (
-  id                bigserial   primary key,
-  agent_abbr        text        not null,
-  symbol            text        not null,
-  horizon           text        not null,
-  version           int         default 1,
-  accuracy          numeric,
-  samples           int,
-  feature_cols      text[],
+  id                 bigserial   primary key,
+  agent_abbr         text        not null,
+  symbol             text        not null,
+  horizon            text        not null,
+  version_num        int         default 1,
+  accuracy           numeric,
+  samples            int,
+  feature_cols       text[],
   feature_importance jsonb,
-  model_path        text,
-  is_active         boolean     default true,
-  trained_at        timestamptz default now(),
-  created_at        timestamptz default now()
+  model_path         text,
+  is_active          boolean     default true,
+  trained_at         timestamptz default now(),
+  created_at         timestamptz default now()
 );
 
 create table if not exists agent_snapshots (
@@ -105,7 +126,7 @@ create table if not exists chat_messages (
   created_at timestamptz default now()
 );
 
--- ── Indexes ────────────────────────────────────────────────────────────────────
+-- ── 3. Indexes ────────────────────────────────────────────────────────────────
 
 create index if not exists idx_trades_agent    on trades(agent_abbr);
 create index if not exists idx_trades_symbol   on trades(symbol);
@@ -116,10 +137,12 @@ create index if not exists idx_jobs_created    on training_jobs(created_at desc)
 create index if not exists idx_models_agent    on model_versions(agent_abbr);
 create index if not exists idx_snap_agent      on agent_snapshots(agent_abbr);
 
--- ── Row Level Security ────────────────────────────────────────────────────────
--- Allow all operations from the service_role key (used by the backend).
--- The backend uses SUPABASE_SERVICE_ROLE_KEY which bypasses RLS automatically,
--- but we add policies for completeness and for anon/authenticated access too.
+-- Unique: only one active model per agent+symbol+horizon
+create unique index if not exists idx_models_active
+  on model_versions(agent_abbr, symbol, horizon)
+  where is_active = true;
+
+-- ── 4. Enable RLS ─────────────────────────────────────────────────────────────
 
 alter table trades              enable row level security;
 alter table training_jobs       enable row level security;
@@ -129,27 +152,10 @@ alter table portfolio_snapshots enable row level security;
 alter table scout_screens       enable row level security;
 alter table chat_messages       enable row level security;
 
--- Drop old policies if they exist (idempotent re-run)
-do $$ begin
-  drop policy if exists "allow_all_trades"    on trades;
-  drop policy if exists "allow_all_jobs"      on training_jobs;
-  drop policy if exists "allow_all_models"    on model_versions;
-  drop policy if exists "allow_all_snapshots" on agent_snapshots;
-  drop policy if exists "allow_all_portfolio" on portfolio_snapshots;
-  drop policy if exists "allow_all_scout"     on scout_screens;
-  drop policy if exists "allow_all_chat"      on chat_messages;
-  -- Drop old duplicate-named policies from previous migrations
-  drop policy if exists "service_role_all"    on trades;
-  drop policy if exists "service_role_all"    on training_jobs;
-  drop policy if exists "service_role_all"    on model_versions;
-  drop policy if exists "service_role_all"    on agent_snapshots;
-  drop policy if exists "service_role_all"    on portfolio_snapshots;
-  drop policy if exists "service_role_all"    on scout_screens;
-  drop policy if exists "service_role_all"    on chat_messages;
-exception when others then null;
-end $$;
+-- ── 5. Create policies (full read+write for everyone) ─────────────────────────
+-- The backend uses the service_role key which bypasses RLS anyway.
+-- These policies also allow the anon key (used for reads from the UI).
 
--- Create fresh policies — both USING and WITH CHECK for full read+write
 create policy "allow_all_trades"    on trades              for all using (true) with check (true);
 create policy "allow_all_jobs"      on training_jobs       for all using (true) with check (true);
 create policy "allow_all_models"    on model_versions      for all using (true) with check (true);
@@ -158,9 +164,18 @@ create policy "allow_all_portfolio" on portfolio_snapshots for all using (true) 
 create policy "allow_all_scout"     on scout_screens       for all using (true) with check (true);
 create policy "allow_all_chat"      on chat_messages       for all using (true) with check (true);
 
--- Confirm
-select 'Setup complete — ' || count(*)::text || ' tables created' as result
-from information_schema.tables
+-- ── 6. Verification ───────────────────────────────────────────────────────────
+
+select
+  table_name,
+  (select count(*) from pg_policies p
+   where p.tablename = t.table_name
+     and p.schemaname = 'public') as policies
+from information_schema.tables t
 where table_schema = 'public'
-  and table_name in ('trades','training_jobs','model_versions',
-                     'agent_snapshots','portfolio_snapshots','scout_screens','chat_messages');
+  and table_name in (
+    'trades','training_jobs','model_versions',
+    'agent_snapshots','portfolio_snapshots',
+    'scout_screens','chat_messages'
+  )
+order by table_name;
