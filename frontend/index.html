@@ -6,7 +6,16 @@
     <title>AI Trading Lab ⚡</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet" />
-  </head>
+    <!-- Supabase JS (for auth only) -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+  <script>
+    // Expose Supabase credentials injected by Vite define or meta tags
+    // Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON in your .env or Render env vars
+    window.__SUPABASE_URL__  = typeof VITE_SUPABASE_URL  !== 'undefined' ? VITE_SUPABASE_URL  : ''
+    window.__SUPABASE_ANON__ = typeof VITE_SUPABASE_ANON !== 'undefined' ? VITE_SUPABASE_ANON : ''
+    window.supabase = supabase   // expose the CDN client
+  </script>
+</head>
   <body style="margin:0;background:#0a0e17">
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>

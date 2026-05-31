@@ -39,11 +39,13 @@ const NAV = [
   { id:'ecosystem',  label:'Ecosystem',  icon:'🧬' },
   { id:'network',    label:'Network',    icon:'🕸️' },
   { id:'analytics',  label:'Analytics',  icon:'📈' },
-  { id:'trades',     label:'Trades',     icon:'📋' },
+  { id:'repository', label:'Repository',  icon:'📊' },
   { id:'chat',       label:'AI Chat',    icon:'💬' },
   { id:'lab',        label:'Training Lab',icon:'🧪' },
   { id:'learning',   label:'Learning',    icon:'📚' },
   { id:'scout',      label:'SCOUT',       icon:'🔭' },
+  { id:'trading',    label:'Trading Mode',icon:'⚡' },
+  { id:'pricedata',  label:'Price Data',  icon:'💹' },
 ]
 
 // ── KPI strip ──────────────────────────────────────────────────────────────────
@@ -701,9 +703,11 @@ export default function App() {
   const [impulses,      setImpulses]      = useState([])
   const [liveImpulses,  setLiveImpulses]  = useState({})
   const [regime,        setRegime]        = useState({ label:'unknown', confidence:0 })
+  const [pnlSummary,    setPnlSummary]    = useState({})
   const [health,        setHealth]        = useState({ supabase:{ connected:false }, data_source:null })
 
   const { connected, lastTick, lastMessage } = useWebSocket()
+  const { toasts, dismiss } = useToastSystem(lastMessage)
   const { agents,    loading  }              = useAgents(lastTick)
 
   // Fetch + poll
@@ -727,7 +731,8 @@ export default function App() {
     if (lastTick?.portfolio)   setPortfolio(p => ({ ...p, ...lastTick.portfolio }))
     if (lastTick?.prices)      setPrices(p => ({ ...p, ...lastTick.prices }))
     if (lastTick?.latest_trade) setTrades(t => [lastTick.latest_trade, ...t].slice(0, 300))
-    if (lastTick?.regime)  setRegime(lastTick.regime)
+    if (lastTick?.regime)      setRegime(lastTick.regime)
+    if (lastTick?.pnl_summary) setPnlSummary(lastTick.pnl_summary)
     if (lastTick?.impulses?.length) {
       setImpulses(prev => [...lastTick.impulses, ...prev].slice(0, 200))
       const live = {}
@@ -745,17 +750,19 @@ export default function App() {
   const renderPage = () => {
     if (selectedAgent) return <AgentDetail agent={selectedAgent} onBack={() => setSelectedAgent(null)}/>
     switch (page) {
-      case 'dashboard':  return <Dashboard  portfolio={portfolio} agents={agents} trades={trades} prices={prices} onOrder={() => openOrder()}/>
+      case 'dashboard':  return <DashboardPage portfolio={portfolio} agents={agents} trades={trades} prices={prices} pnlSummary={pnlSummary} lastTick={lastTick} onOrder={(prefill) => openOrder(prefill)}/>
       case 'agents':     return <AgentsPage agents={agents} loading={loading} onSelect={setSelectedAgent}/>
       case 'ecosystem':  return <EcosystemPage lastMessage={lastMessage}/>
       case 'network':    return <NetworkPage agents={agents} impulses={impulses} liveImpulses={liveImpulses} regime={regime}/>
       case 'analytics':  return <AnalyticsPage agents={agents}/>
-      case 'trades':     return <TradesPage trades={trades} onOrder={() => openOrder()}/>
+      case 'repository': return <TradeRepositoryPage/>
       case 'chat':       return <ChatPage portfolio={portfolio} agents={agents} onOrderSuggested={openOrder}/>
       case 'lab':        return <TrainingLabPage/>
       case 'learning':   return <AgentLearningPage/>
       case 'scout':      return <ScoutPage/>
-      default:           return <Dashboard  portfolio={portfolio} agents={agents} trades={trades} prices={prices} onOrder={() => openOrder()}/>
+      case 'trading':    return <TradingModePage lastMessage={lastMessage}/>
+      case 'pricedata':  return <PriceDataPage/>
+      default:           return <DashboardPage portfolio={portfolio} agents={agents} trades={trades} prices={prices} pnlSummary={pnlSummary} lastTick={lastTick} onOrder={(prefill) => openOrder(prefill)}/>
     }
   }
 
@@ -774,6 +781,7 @@ export default function App() {
         onExecuted={trade => { setTrades(t => [trade, ...t]); setOrderOpen(false) }}
       />
       <AiInsightsPanel page={selectedAgent ? 'agents' : page} portfolio={portfolio} agents={agents}/>
+      <ToastContainer toasts={toasts} onDismiss={dismiss}/>
     </div>
   )
 }

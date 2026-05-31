@@ -154,11 +154,36 @@ async def _run(job: Job):
         job.status       = "completed"
         job.completed_at = datetime.now(timezone.utc).isoformat()
         _save_job_to_db(job)
-        await prog(100, f"Done ✅  OOS={round(meta.get('accuracy',0)*100,1)}%")
+        # Notification
+        try:
+            from services.notifications import notify_training_complete
+            await notify_training_complete(
+                job.agent_abbr, job.symbol, job.horizon,
+                meta.get("accuracy", 0), meta.get("cv_mean", 0)
+            )
+        except Exception:
+            pass
+        # LLM commentary on training results
+        try:
+            from services.llm_router import training_commentary
+            commentary = await training_commentary(job.agent_abbr, meta)
+            if commentary:
+                meta["llm_commentary"] = commentary
+                joblib.dump(meta, meta_path)
+                await prog(100, commentary[:80] + "…" if len(commentary) > 80 else commentary)
+            else:
+                await prog(100, f"Done OOS={round(meta.get('accuracy',0)*100,1)}%")
+        except Exception:
+            await prog(100, f"Done OOS={round(meta.get('accuracy',0)*100,1)}%")
 
     except Exception as e:
         job.status       = "failed"
         job.error        = str(e)[:200]
+        try:
+            from services.notifications import notify_training_failed
+            await notify_training_failed(job.agent_abbr, str(e)[:120])
+        except Exception:
+            pass
         job.completed_at = datetime.now(timezone.utc).isoformat()
         _save_job_to_db(job)
         await _emit({"type": "training_failed", "job": job.to_dict()})

@@ -63,6 +63,70 @@ def get_portfolio_exposure() -> dict:
     return exposure
 
 
+# ── Live P&L calculation ─────────────────────────────────────────────────────
+def calc_unrealized_pnl(current_prices: dict) -> dict:
+    """
+    For every open position, compute unrealized P&L at current market price.
+    Returns: {abbr: {symbol: {qty, avg_cost, current_price, unrealized_pnl, unrealized_pct}}}
+    """
+    result: dict = {}
+    for abbr, positions in _positions.items():
+        result[abbr] = {}
+        for sym, pos in positions.items():
+            qty    = float(pos.get("qty", 0))
+            avg_c  = float(pos.get("avg_cost", 0))
+            cprice = float(current_prices.get(sym, avg_c))
+            unreal = round((cprice - avg_c) * qty, 4)
+            pct    = round((cprice - avg_c) / (avg_c + 1e-9) * 100, 3) if avg_c else 0
+            result[abbr][sym] = {
+                "qty":            qty,
+                "avg_cost":       avg_c,
+                "current_price":  cprice,
+                "unrealized_pnl": unreal,
+                "unrealized_pct": pct,
+                "market_value":   round(cprice * qty, 4),
+                "cost_basis":     round(avg_c  * qty, 4),
+                "opened_at":      pos.get("opened_at"),
+            }
+    return result
+
+
+def get_portfolio_pnl_summary(current_prices: dict) -> dict:
+    """Aggregate P&L snapshot across all agents."""
+    upnl = calc_unrealized_pnl(current_prices)
+    total_unrealized = sum(
+        pos["unrealized_pnl"]
+        for agent_pos in upnl.values()
+        for pos in agent_pos.values()
+    )
+    total_market_val = sum(
+        pos["market_value"]
+        for agent_pos in upnl.values()
+        for pos in agent_pos.values()
+    )
+    total_cost = sum(
+        pos["cost_basis"]
+        for agent_pos in upnl.values()
+        for pos in agent_pos.values()
+    )
+    agent_pnl = {}
+    for abbr, positions in upnl.items():
+        a_unreal = sum(p["unrealized_pnl"] for p in positions.values())
+        a_mval   = sum(p["market_value"]   for p in positions.values())
+        agent_pnl[abbr] = {
+            "unrealized_pnl": round(a_unreal, 4),
+            "market_value":   round(a_mval,   4),
+            "open_positions": len(positions),
+        }
+    return {
+        "total_unrealized_pnl": round(total_unrealized, 4),
+        "total_market_value":   round(total_market_val, 4),
+        "total_cost_basis":     round(total_cost, 4),
+        "by_agent":             agent_pnl,
+        "by_position":          upnl,
+    }
+
+
 # ── Deduplication checks ──────────────────────────────────────────────────────
 class OrderRejected(Exception):
     def __init__(self, reason: str, code: str):

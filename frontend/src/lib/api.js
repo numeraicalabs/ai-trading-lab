@@ -79,6 +79,38 @@ export const api = {
   listUploads:    ()          => get('/api/data/uploads'),
   // Multi-symbol training
   trainMulti:     (body)      => post('/api/train/multi', body),
+  // Trade Repository
+  repoPortfolio:  ()          => get('/api/repository/portfolio'),
+  repoAgents:     ()          => get('/api/repository/agents'),
+  repoAgent:      (a)         => get(`/api/repository/agent/${a}`),
+  repoTrades:     (params='') => get(`/api/repository/trades?${params}`),
+  repoSummary:    ()          => get('/api/repository/summary'),
+  // Trading Mode & Approval
+  tradingMode:     ()           => get('/api/trading/mode'),
+  setTradingMode:  (m)          => post(`/api/trading/mode/${m}`, {}),
+  brokerStatus:    ()           => get('/api/trading/broker'),
+  approvalQueue:   ()           => get('/api/approval/queue'),
+  approvalHistory: (n=50)       => get(`/api/approval/history?limit=${n}`),
+  approvalStats:   ()           => get('/api/approval/stats'),
+  approveOrder:    (id,body={}) => post(`/api/approval/${id}/approve`, body),
+  rejectOrder:     (id,body={}) => post(`/api/approval/${id}/reject`, body),
+  bulkApprove:     ()           => post('/api/approval/bulk/approve', {}),
+  bulkReject:      ()           => post('/api/approval/bulk/reject', {}),
+  // Price Store
+  priceHistory:    (s,h)        => get(`/api/prices/history/${s}/${h}`),
+  prefetchPrices:  (body)       => post('/api/prices/prefetch', body),
+  cacheStats:      ()           => get('/api/prices/cache/stats'),
+  storedSymbols:   ()           => get('/api/prices/stored'),
+  // Risk Manager
+  rmgStatus:      ()          => get('/api/risk-manager/status'),
+  rmgAlerts:      (n=30)      => get(`/api/risk-manager/alerts?limit=${n}`),
+  resetStop:      ()          => post('/api/risk-manager/reset-stop', {}),
+  portfolioPnl:   ()          => get('/api/portfolio/pnl'),
+  // Notifications
+  notifications:  (n=50)      => get(`/api/notifications?limit=${n}`),
+  // Storage
+  storageModels:  ()          => get('/api/storage/models'),
+  restoreModels:  ()          => post('/api/storage/restore', {}),
   // Positions & exposure
   allPositions:   ()          => get('/api/positions'),
   agentPositions: (a)         => get(`/api/positions/${a}`),

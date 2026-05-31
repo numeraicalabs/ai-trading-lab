@@ -61,22 +61,46 @@ from services.trainer      import train, get_meta
 from services.trainer_queue import (enqueue, list_jobs, get_job, queue_size,
                                     set_broadcast, worker_loop)
 from services.paper        import (execute as paper_execute, OrderRejected,
+                                    calc_unrealized_pnl, get_portfolio_pnl_summary,
                                     get_positions, get_all_positions,
                                     get_portfolio_exposure, opt_rebalance)
-from services.trainer      import (train, get_meta, list_models, verify_models)
-from services.backtest     import (run_backtest, run_multi_backtest,
-                                    list_results, get_result)
+from services.trainer      import (train, get_meta, list_models, verify_models,
+                                    restore_models_from_storage)
+from services.backtest     import (run_is_oos, run_walk_forward,
+                                    run_monte_carlo, run_multi_ticker,
+                                    list_results, get_result_by_key)
 from services.universe     import (get_universe, get_symbols, add_symbol,
                                     remove_symbol, list_sectors, symbols_for_agent,
                                     parse_uploaded_csv, get_custom_ohlcv,
                                     list_custom_uploads)
 from services.scheduler    import (scheduler_loop, get_history, get_all_history,
-                                    get_retrain_log, notify_regime_change,
+                                    get_retrain_log,
                                     AUTO_RETRAIN_ENABLED, MIN_ACCURACY, SCHEDULER_INTERVAL)
 from services.scout        import (run_screen, get_cached_screen, scout_loop, SCREEN_UNIVERSE)
+from services.risk_manager  import (rmg_loop, get_status as rmg_status,
+                                    get_alerts as rmg_alerts, is_global_stop,
+                                    reset_global_stop, set_broadcast as rmg_set_broadcast)
+from services.notifications import (set_broadcast as notif_set_broadcast,
+                                     get_history as notif_history,
+                                     notify_training_complete, notify_training_failed,
+                                     notify_stop_triggered, notify_regime_change,
+                                     notify_model_restored, notify_scout_opportunity)
 from services.agent_pdf    import generate_agent_pdf, save_agent_pdf
 from services.reports      import (generate_portfolio_report, generate_scout_report,
                                     generate_backtest_report, list_reports, get_report_html)
+from services.price_store     import (get_or_fetch, prefetch_universe, local_cache_stats,
+                                      list_stored_symbols, bulk_upsert_prices)
+from services.trade_approval  import (process_signal, approve as approve_trade,
+                                      reject as reject_trade, bulk_approve_all,
+                                      bulk_reject_all, get_queue, get_history as approval_history,
+                                      get_stats as approval_stats, get_mode, set_mode,
+                                      check_broker_connection, set_broadcast as approval_set_broadcast,
+                                      is_manual, is_paper)
+from services.trade_repository import (agent_analytics, strategy_comparison_table,
+                                       portfolio_analytics, filter_trades, enrich_trade)
+from services.llm_router   import (complete as llm_complete, training_commentary,
+                                    signal_thesis, backtest_postmortem,
+                                    strategy_comparison, get_provider_status)
 from services.db           import (health_check as db_health, get_client as db_client,
                                     save_trade as db_save_trade,
                                     save_model_version, load_recent_trades)
@@ -185,13 +209,21 @@ async def sim_loop():
         await asyncio.sleep(settings.simulation_tick_seconds)
         _tick_prices(); _tick_agents(); _tick_portfolio()
         live_imps = get_live_impulses()
+        # Persist latest prices to Supabase price_cache table (non-blocking)
+        try:
+            bulk_upsert_prices(prices)
+        except Exception:
+            pass
+        pnl_summary = get_portfolio_pnl_summary(prices)
         await ws_manager.broadcast({
             "type":         "tick",
             "prices":       prices,
-            "portfolio":    portfolio,
+            "portfolio":    {**portfolio, "unrealized_pnl": pnl_summary["total_unrealized_pnl"],
+                             "global_stop": is_global_stop()},
             "latest_trade": trades[0] if trades else None,
             "regime":       get_regime(),
             "impulses":     list(live_imps.values())[-20:],
+            "pnl_summary":  pnl_summary,
             "agents": {
                 a: {"perf": s.get("perf",0), "equity": s.get("equity",100),
                     "reward": s.get("reward",0), "confidence": round(s.get("confidence",60),1),
@@ -214,7 +246,15 @@ async def agent_bg_loop():
             await ws_manager.broadcast({"type": "signal", "signal": sig})
             # Notify scheduler of regime changes
             if abbr == "REG" and sig.get("action") != "HOLD":
-                notify_regime_change(get_regime().get("label","unknown"))
+                # Notify regime change via notifications service
+                try:
+                    cur_regime = get_regime().get("label","unknown")
+                    from services.notifications import notify
+                    await notify("regime_change", f"Regime: {cur_regime}",
+                                 f"REG detected {cur_regime} regime",
+                                 "info", {"regime": cur_regime})
+                except Exception:
+                    pass
         except Exception as e:
             logger.warning(f"agent_bg [{abbr}]: {e}")
 
@@ -222,7 +262,23 @@ async def agent_bg_loop():
 @asynccontextmanager
 async def lifespan(app):
     set_broadcast(ws_manager.broadcast)
-    tasks = [asyncio.create_task(t) for t in [sim_loop(), agent_bg_loop(), worker_loop(), scheduler_loop(), scout_loop()]]
+    rmg_set_broadcast(ws_manager.broadcast)
+    approval_set_broadcast(ws_manager.broadcast)
+    notif_set_broadcast(ws_manager.broadcast)
+    # Restore .pkl models from Supabase Storage (non-blocking)
+    try:
+        loop   = asyncio.get_event_loop()
+        result = await loop.run_in_executor(None, restore_models_from_storage)
+        if result.get("restored", 0) > 0:
+            asyncio.create_task(notify_model_restored(result["restored"]))
+        logger.info(f"Model restore: {result}")
+    except Exception as e:
+        logger.warning(f"Model restore skipped: {e}")
+    tasks = [asyncio.create_task(t) for t in [
+        sim_loop(), agent_bg_loop(), worker_loop(),
+        scheduler_loop(), scout_loop(),
+        rmg_loop(lambda: prices, lambda: portfolio["equity"], paper_execute),
+    ]]
     yield
     for t in tasks: t.cancel()
 
@@ -609,23 +665,50 @@ def api_model_detail(abbr: str, symbol: str, horizon: str):
 @app.post("/api/backtest/run")
 async def api_backtest(body: BacktestIn):
     loop   = asyncio.get_event_loop()
-    df_raw = await loop.run_in_executor(None, get_ohlcv, body.symbol.upper(), body.horizon)
+    abbr   = body.abbr.upper()
+    sym    = body.symbol.upper()
+    df_raw = await loop.run_in_executor(None, get_ohlcv, sym, body.horizon)
     if df_raw is None or df_raw.empty:
-        raise HTTPException(400, f"No data for {body.symbol}/{body.horizon}")
-    df = await loop.run_in_executor(None, add_indicators, df_raw)
-    result = await loop.run_in_executor(
-        None, run_backtest,
-        body.abbr.upper(), body.symbol.upper(), body.horizon, df, body.initial_capital
-    )
+        raise HTTPException(400, f"No data for {sym}/{body.horizon}")
+    import functools
+    if body.mode == "walk_forward":
+        fn = functools.partial(run_walk_forward, abbr, sym, body.horizon,
+                               df_raw, body.initial_capital, body.n_folds)
+    elif body.mode == "monte_carlo":
+        fn = functools.partial(run_monte_carlo, abbr, sym, body.horizon,
+                               df_raw, body.initial_capital, body.n_sims)
+    else:
+        fn = functools.partial(run_is_oos, abbr, sym, body.horizon,
+                               df_raw, body.initial_capital)
+    result = await loop.run_in_executor(None, fn)
+    if "error" not in result:
+        try:
+            postmortem = await backtest_postmortem(abbr, {
+                **result.get("full", result.get("oos", {})),
+                "symbol": sym, "horizon": body.horizon
+            })
+            result["llm_postmortem"] = postmortem
+        except Exception:
+            pass
     return result
 
 @app.post("/api/backtest/multi")
 async def api_backtest_multi(body: MultiBacktestIn):
-    result = await asyncio.get_event_loop().run_in_executor(
-        None, run_multi_backtest,
-        body.abbr.upper(), [s.upper() for s in body.symbols],
-        body.horizon, body.initial_capital
+    result = await run_multi_ticker(
+        body.abbr.upper(),
+        [s.upper() for s in body.symbols],
+        body.horizon,
+        body.initial_capital,
+        mode=body.mode,
     )
+    if result.get("rows"):
+        try:
+            cmp = await strategy_comparison([
+                {**r, "abbr": body.abbr} for r in result["rows"] if "error" not in r
+            ])
+            result["llm_comparison"] = cmp
+        except Exception:
+            pass
     return result
 
 @app.get("/api/backtest/results")
@@ -633,8 +716,8 @@ def api_backtest_results():
     return list_results()
 
 @app.get("/api/backtest/results/{abbr}/{symbol}/{horizon}")
-def api_backtest_detail(abbr: str, symbol: str, horizon: str):
-    r = get_result(abbr.upper(), symbol.upper(), horizon)
+def api_backtest_detail(abbr: str, symbol: str, horizon: str, mode: str = "is_oos"):
+    r = get_result_by_key(abbr.upper(), symbol.upper(), horizon, mode)
     if not r:
         raise HTTPException(404, "No backtest result found")
     return r
@@ -699,6 +782,22 @@ def api_training_stats():
         "avg_backtest_sharpe":round(float(sum(r.get("sharpe",0) for r in results) / max(len(results),1)), 3),
         "positive_alpha_count":sum(1 for r in results if (r.get("alpha") or 0) > 0),
     }
+
+# ── LLM Router ────────────────────────────────────────────────────────────────
+@app.get("/api/llm/status")
+async def api_llm_status():
+    statuses = await get_provider_status()
+    return {"providers": statuses,
+            "recommendation": next((k for k,v in statuses.items() if v["ok"]), "fallback")}
+
+@app.post("/api/llm/complete")
+async def api_llm_complete(body: dict = {}):
+    prompt = body.get("prompt", "")
+    abbr   = body.get("abbr",   "")
+    if not prompt:
+        raise HTTPException(400, "prompt required")
+    result = await llm_complete(prompt, agent_abbr=abbr, max_tokens=400)
+    return result
 
 # ── Scheduler ────────────────────────────────────────────────────────────────
 @app.get("/api/scheduler/status")
@@ -956,6 +1055,201 @@ async def api_network_flow():
         "active_agents":   [a for a,s in AGENT_STATE.items() if s["state"]=="Live"],
         "ts":              __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat(),
     }
+
+# ── Trading Mode & Approval ───────────────────────────────────────────────────
+@app.get("/api/trading/mode")
+def api_get_mode():
+    return {**approval_stats(), "valid_modes": list({"PAPER_AUTO","PAPER_MANUAL","REAL_MANUAL","REAL_AUTO"})}
+
+@app.post("/api/trading/mode/{mode}")
+async def api_set_mode(mode: str):
+    try:
+        new_mode = set_mode(mode.upper())
+        return {"mode": new_mode, "message": f"Trading mode set to {new_mode}"}
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+@app.get("/api/trading/broker")
+async def api_broker_status():
+    return await check_broker_connection()
+
+@app.get("/api/approval/queue")
+def api_approval_queue():
+    return {"queue": get_queue(), "count": len(get_queue())}
+
+@app.get("/api/approval/history")
+def api_approval_history(limit: int = 50):
+    return approval_history(limit)
+
+@app.get("/api/approval/stats")
+def api_approval_stats():
+    return approval_stats()
+
+class ApproveIn(BaseModel):
+    approved_by:  str            = "user"
+    modified_qty: Optional[float]= None
+
+@app.post("/api/approval/{req_id}/approve")
+async def api_approve(req_id: str, body: ApproveIn):
+    return await approve_trade(req_id, body.approved_by, body.modified_qty,
+                               paper_execute_fn=paper_execute, current_prices=prices)
+
+@app.post("/api/approval/{req_id}/reject")
+async def api_reject(req_id: str, body: dict = {}):
+    reason = body.get("reason","Rejected by user") if isinstance(body,dict) else "Rejected"
+    return await reject_trade(req_id, reason)
+
+@app.post("/api/approval/bulk/approve")
+async def api_bulk_approve():
+    return await bulk_approve_all(paper_execute_fn=paper_execute, current_prices=prices)
+
+@app.post("/api/approval/bulk/reject")
+async def api_bulk_reject():
+    return await bulk_reject_all()
+
+# ── Price Store ────────────────────────────────────────────────────────────────
+@app.get("/api/prices/cache/stats")
+def api_cache_stats():
+    return local_cache_stats()
+
+@app.get("/api/prices/stored")
+def api_stored_symbols():
+    return {"symbols": list_stored_symbols()}
+
+class PrefetchIn(BaseModel):
+    symbols: list = []
+    horizon: str  = "swing"
+
+@app.post("/api/prices/prefetch")
+async def api_prefetch(body: PrefetchIn):
+    from services.universe import get_symbols
+    syms = body.symbols or get_symbols()
+    results = await prefetch_universe(syms[:50], body.horizon)
+    ok      = sum(1 for v in results.values() if v in ("ok","cached"))
+    return {"total":len(results),"ok":ok,"results":results}
+
+@app.get("/api/prices/history/{symbol}/{horizon}")
+async def api_price_history(symbol: str, horizon: str):
+    loop = asyncio.get_event_loop()
+    df   = await loop.run_in_executor(None, get_or_fetch, symbol.upper(), horizon)
+    if df is None or df.empty:
+        raise HTTPException(404, f"No data for {symbol}/{horizon}")
+    # Return last 200 rows as JSON
+    subset = df.tail(200)
+    return {
+        "symbol":  symbol.upper(),
+        "horizon": horizon,
+        "bars":    len(subset),
+        "data": [
+            {"date":  str(idx)[:10],
+             "open":  round(float(row["open"]),  4),
+             "high":  round(float(row["high"]),  4),
+             "low":   round(float(row["low"]),   4),
+             "close": round(float(row["close"]), 4),
+             "volume":round(float(row.get("volume",0)),0)}
+            for idx, row in subset.iterrows()
+        ],
+    }
+
+# ── Trade Repository ──────────────────────────────────────────────────────────
+@app.get("/api/repository/portfolio")
+def api_repo_portfolio():
+    return portfolio_analytics(trades)
+
+@app.get("/api/repository/agents")
+def api_repo_agents():
+    return strategy_comparison_table(trades)
+
+@app.get("/api/repository/agent/{abbr}")
+def api_repo_agent(abbr: str):
+    return agent_analytics(trades, abbr.upper())
+
+@app.get("/api/repository/trades")
+def api_repo_trades(
+    agent:      Optional[str]  = None,
+    symbol:     Optional[str]  = None,
+    horizon:    Optional[str]  = None,
+    side:       Optional[str]  = None,
+    risk_level: Optional[str]  = None,
+    tag:        Optional[str]  = None,
+    from_date:  Optional[str]  = None,
+    to_date:    Optional[str]  = None,
+    min_pnl:    Optional[float]= None,
+    max_pnl:    Optional[float]= None,
+    has_memo:   Optional[bool] = None,
+    search:     Optional[str]  = None,
+    limit:      int            = 200,
+    offset:     int            = 0,
+):
+    filtered = filter_trades(
+        trades, agent=agent, symbol=symbol, horizon=horizon, side=side,
+        risk_level=risk_level, tag=tag, from_date=from_date, to_date=to_date,
+        min_pnl=min_pnl, max_pnl=max_pnl, has_memo=has_memo, search=search,
+    )
+    enriched = [enrich_trade(t, prices.get(t.get("symbol",""))) for t in filtered]
+    return {
+        "total":  len(enriched),
+        "offset": offset,
+        "limit":  limit,
+        "trades": enriched[offset : offset + limit],
+    }
+
+@app.get("/api/repository/summary")
+def api_repo_summary():
+    all_agents = list({t.get("agent_abbr") for t in trades if t.get("agent_abbr")})
+    all_syms   = list({t.get("symbol")     for t in trades if t.get("symbol")})
+    all_tags   = list({tag for t in trades
+                       for tag in ((t.get("memo") or {}).get("tags") or [])})
+    return {
+        "total_trades":   len(trades),
+        "agents_active":  all_agents,
+        "symbols_traded": all_syms,
+        "tags_used":      all_tags,
+        "date_range":     {
+            "from": min((t.get("ts","") for t in trades), default=""),
+            "to":   max((t.get("ts","") for t in trades), default=""),
+        },
+    }
+
+# ── Risk Manager ─────────────────────────────────────────────────────────────
+@app.get("/api/risk-manager/status")
+def api_rmg_status():
+    return rmg_status()
+
+@app.get("/api/risk-manager/alerts")
+def api_rmg_alerts(limit: int = 30):
+    return rmg_alerts(limit)
+
+@app.post("/api/risk-manager/reset-stop")
+async def api_reset_stop():
+    if not is_global_stop():
+        return {"message": "No active global stop"}
+    reset_global_stop()
+    return {"message": "Global stop reset"}
+
+@app.get("/api/portfolio/pnl")
+def api_portfolio_pnl():
+    return get_portfolio_pnl_summary(prices)
+
+# ── Notifications ─────────────────────────────────────────────────────────────
+@app.get("/api/notifications")
+def api_notifications(limit: int = 50):
+    return notif_history(limit)
+
+# ── Storage ────────────────────────────────────────────────────────────────────
+@app.get("/api/storage/models")
+async def api_storage_models():
+    from services.db import list_stored_models
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, list_stored_models)
+
+@app.post("/api/storage/restore")
+async def api_storage_restore():
+    loop   = asyncio.get_event_loop()
+    result = await loop.run_in_executor(None, restore_models_from_storage)
+    if result.get("restored", 0) > 0:
+        await notify_model_restored(result["restored"])
+    return result
 
 # ── Reports ──────────────────────────────────────────────────────────────────
 @app.get("/api/reports")

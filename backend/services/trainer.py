@@ -259,12 +259,14 @@ def train(abbr: str, symbol: str, horizon: str,
     }
     joblib.dump(meta, _meta_path(abbr, symbol, horizon))
     logger.info(f"Trained {abbr}/{symbol}/{horizon}: OOS={oos_acc:.3f} CV={cv_mean:.3f}±{cv_std:.3f}")
-    # Persist to Supabase
+    # Persist metadata to Supabase
     try:
-        from services.db import save_model_version
+        from services.db import save_model_version, upload_model
         save_model_version(meta)
-    except Exception:
-        pass
+        # Upload .pkl to Supabase Storage (async-safe: runs in executor)
+        upload_model(abbr, symbol, horizon, mp)
+    except Exception as ex:
+        logger.debug(f"DB/storage persist: {ex}")
     return meta
 
 
@@ -296,6 +298,41 @@ def predict(abbr: str, symbol: str, horizon: str, df: pd.DataFrame) -> dict:
 
 
 # ── Model registry ────────────────────────────────────────────────────────────
+def restore_models_from_storage() -> dict:
+    """
+    On startup: download any .pkl files missing locally from Supabase Storage.
+    Call once from main.py lifespan startup.
+    Returns {"restored": int, "failed": int}
+    """
+    try:
+        from services.db import list_stored_models, download_model
+        stored  = list_stored_models()
+        restored = 0
+        failed   = 0
+        for item in stored:
+            abbr    = item.get("abbr","")
+            symbol  = item.get("symbol","")
+            horizon = item.get("horizon","")
+            mp      = _model_path(abbr, symbol, horizon)
+            if mp.exists():
+                continue    # already present locally
+            ok = download_model(abbr, symbol, horizon, mp)
+            # Also download meta
+            meta_p = _meta_path(abbr, symbol, horizon)
+            if ok and not meta_p.exists():
+                # Try meta (stored separately — only pkl for now)
+                pass
+            if ok:
+                restored += 1
+                logger.info(f"Restored {abbr}/{symbol}/{horizon} from storage")
+            else:
+                failed += 1
+        return {"restored": restored, "failed": failed, "total": len(stored)}
+    except Exception as e:
+        logger.warning(f"restore_models: {e}")
+        return {"restored": 0, "failed": 0, "total": 0}
+
+
 def list_models() -> list:
     """List all saved models with their metadata."""
     rows = []

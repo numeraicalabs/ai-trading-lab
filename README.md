@@ -106,3 +106,44 @@ On Render free tier Ollama is not available — chat gracefully shows "offline".
 | VOL | Volatility Trading | scalping, day |
 | REG | Regime Detection | swing, position |
 | OPT | Portfolio Optimizer | swing, position |
+
+## v13 — New features
+
+### Risk Manager (RMG) agent
+- Portfolio drawdown monitoring — warning at 5%, hard stop at 10%
+- Individual position auto-stop at 3% loss
+- Concentration risk alerts (>40% in one symbol)
+- Global stop flag — blocks all new orders when hard limit reached
+- Dashboard → Risk Monitor tab with alert log
+
+### Live P&L Tracking
+- Every open position shows unrealized P&L in real-time via WebSocket
+- Dashboard → P&L Live tab
+- `GET /api/portfolio/pnl` — full breakdown by agent and position
+
+### Model Persistence on Supabase Storage
+- After every training, `.pkl` files uploaded gzip-compressed to `model-storage` bucket
+- On app startup, missing models auto-restored from storage (survives redeployments)
+- `GET /api/storage/models` — list stored models
+- `POST /api/storage/restore` — manually trigger restore
+
+### Toast Notifications
+- Real-time alerts via WebSocket → toast popups
+- Events: training complete/failed, stop loss triggered, regime change, model restored
+- Dismissable with auto-timeout (critical alerts stay until dismissed)
+
+### Authentication (Supabase Magic Link)
+- Email magic-link login — no password needed
+- "Skip auth" option for demo mode
+- User avatar + signout in TopBar
+- Requires `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON` env vars
+
+### New env vars
+```
+PORTFOLIO_DD_WARN=0.05     # drawdown warning threshold
+PORTFOLIO_DD_HARD=0.10     # hard stop threshold
+POSITION_DD_HARD=0.03      # per-position auto-stop
+RMG_CHECK_INTERVAL=15      # seconds between RMG checks
+VITE_SUPABASE_URL=...      # same as SUPABASE_URL
+VITE_SUPABASE_ANON=...     # anon/public key from Supabase
+```

@@ -179,3 +179,83 @@ where table_schema = 'public'
     'scout_screens','chat_messages'
   )
 order by table_name;
+
+-- ── Risk manager alerts (append-only log) ─────────────────────────────────────
+create table if not exists risk_alerts (
+  id          bigserial   primary key,
+  level       text        not null,
+  type        text        not null,
+  abbr        text,
+  symbol      text,
+  drawdown    numeric,
+  message     text,
+  ts          timestamptz default now()
+);
+create index if not exists idx_risk_alerts_ts on risk_alerts(ts desc);
+alter table risk_alerts enable row level security;
+create policy "allow_all_risk_alerts" on risk_alerts
+  for all using (true) with check (true);
+
+-- ── Price history cache (latest tick per symbol) ──────────────────────────────
+-- Full OHLCV history is stored in Supabase Storage (bucket: price-data)
+-- This table stores only the latest price for each symbol (for the UI ticker)
+create table if not exists price_cache (
+  symbol      text        primary key,
+  price       numeric,
+  change_pct  numeric,
+  prev_close  numeric,
+  source      text        default 'sim',
+  updated_at  timestamptz default now()
+);
+create index if not exists idx_price_cache_updated on price_cache(updated_at desc);
+alter table price_cache enable row level security;
+create policy "allow_all_price_cache" on price_cache
+  for all using (true) with check (true);
+
+-- ── Pending trade approvals ───────────────────────────────────────────────────
+create table if not exists pending_orders (
+  req_id        text        primary key,
+  agent_abbr    text        not null,
+  symbol        text        not null,
+  side          text        not null,
+  quantity      numeric,
+  confidence    numeric,
+  regime        text,
+  horizon       text,
+  thesis        text,
+  signal_source text,
+  price         numeric,
+  stop_loss     numeric,
+  take_profit   numeric,
+  checks        jsonb,
+  risk_flags    jsonb,
+  status        text        default 'PENDING',
+  mode          text        not null,
+  approved_by   text,
+  reject_reason text,
+  modified_qty  numeric,
+  executed      boolean     default false,
+  trade_result  jsonb,
+  created_at    timestamptz default now(),
+  expires_at    timestamptz
+);
+create index if not exists idx_pending_status  on pending_orders(status);
+create index if not exists idx_pending_agent   on pending_orders(agent_abbr);
+create index if not exists idx_pending_created on pending_orders(created_at desc);
+alter table pending_orders enable row level security;
+create policy "allow_all_pending_orders" on pending_orders
+  for all using (true) with check (true);
+
+-- ── Trading mode config ───────────────────────────────────────────────────────
+create table if not exists trading_config (
+  key         text        primary key,
+  value       text        not null,
+  updated_at  timestamptz default now()
+);
+alter table trading_config enable row level security;
+create policy "allow_all_trading_config" on trading_config
+  for all using (true) with check (true);
+-- Default config
+insert into trading_config (key, value)
+values ('trading_mode', 'PAPER_AUTO')
+on conflict (key) do nothing;

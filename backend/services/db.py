@@ -195,3 +195,87 @@ def load_model_versions(agent_abbr: Optional[str] = None) -> list:
         res = q.order("trained_at", desc=True).limit(50).execute()
         return res.data or []
     return _safe(_do, "load_models") or []
+
+
+# ── Supabase Storage — model .pkl persistence ──────────────────────────────────
+import base64, gzip as _gzip
+from pathlib import Path as _FP
+
+STORAGE_BUCKET = "model-storage"
+
+def upload_model(abbr: str, symbol: str, horizon: str, pkl_path) -> bool:
+    """Gzip + base64 encode a .pkl file and upload to Supabase Storage."""
+    sb = get_client()
+    if not sb:
+        return False
+    try:
+        pkl_path = _FP(pkl_path)
+        if not pkl_path.exists():
+            return False
+        raw         = pkl_path.read_bytes()
+        compressed  = _gzip.compress(raw, compresslevel=6)
+        storage_key = f"models/{abbr}/{symbol}/{horizon}.pkl.gz"
+        def _do():
+            # upsert: remove old then upload
+            try:
+                sb.storage.from_(STORAGE_BUCKET).remove([storage_key])
+            except Exception:
+                pass
+            sb.storage.from_(STORAGE_BUCKET).upload(
+                storage_key, compressed,
+                {"content-type": "application/octet-stream"}
+            )
+        _safe(_do, "upload_model")
+        logger.info(f"Uploaded model {storage_key} ({len(compressed)//1024}kb)")
+        return True
+    except Exception as e:
+        logger.debug(f"upload_model error: {e}")
+        return False
+
+
+def download_model(abbr: str, symbol: str, horizon: str, dest_path) -> bool:
+    """Download and decompress a .pkl.gz from Supabase Storage."""
+    sb = get_client()
+    if not sb:
+        return False
+    try:
+        storage_key = f"models/{abbr}/{symbol}/{horizon}.pkl.gz"
+        def _do():
+            return sb.storage.from_(STORAGE_BUCKET).download(storage_key)
+        compressed = _safe(_do, "download_model")
+        if not compressed:
+            return False
+        raw = _gzip.decompress(compressed)
+        _FP(dest_path).parent.mkdir(parents=True, exist_ok=True)
+        _FP(dest_path).write_bytes(raw)
+        logger.info(f"Downloaded model {storage_key} -> {dest_path}")
+        return True
+    except Exception as e:
+        logger.debug(f"download_model error: {e}")
+        return False
+
+
+def list_stored_models() -> list:
+    """List all models in the storage bucket."""
+    sb = get_client()
+    if not sb:
+        return []
+    def _do():
+        items = sb.storage.from_(STORAGE_BUCKET).list("models")
+        result = []
+        for folder in (items or []):
+            abbr = folder.get("name","")
+            sub  = sb.storage.from_(STORAGE_BUCKET).list(f"models/{abbr}")
+            for sym_folder in (sub or []):
+                sym  = sym_folder.get("name","")
+                sub2 = sb.storage.from_(STORAGE_BUCKET).list(f"models/{abbr}/{sym}")
+                for f in (sub2 or []):
+                    result.append({
+                        "abbr":    abbr,
+                        "symbol":  sym,
+                        "horizon": f.get("name","").replace(".pkl.gz",""),
+                        "size":    f.get("metadata",{}).get("size",0),
+                        "key":     f"models/{abbr}/{sym}/{f.get('name','')}",
+                    })
+        return result
+    return _safe(_do, "list_stored_models") or []

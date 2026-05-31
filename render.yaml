@@ -55,4 +55,37 @@ services:
       - key: YFINANCE_TIMEOUT
         value: "8"
       - key: JOB_TIMEOUT_SECONDS
-        value: "300" 
+        value: "300"
+      # Risk Manager
+      - key: PORTFOLIO_DD_WARN
+        value: "0.05"
+      - key: PORTFOLIO_DD_HARD
+        value: "0.10"
+      - key: POSITION_DD_HARD
+        value: "0.03"
+      - key: RMG_CHECK_INTERVAL
+        value: "15"
+      # Auth (Supabase anon key for frontend magic-link login)
+      - key: VITE_SUPABASE_URL
+        sync: false
+      - key: VITE_SUPABASE_ANON
+        sync: false
+      # LLM Providers (all optional — free tier)
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GROQ_MODEL
+        value: "llama3-70b-8192"
+      - key: HUGGINGFACE_API_KEY
+        sync: false
+      - key: HF_MODEL
+        value: "mistralai/Mistral-7B-Instruct-v0.3"
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: OPENROUTER_MODEL
+        value: "mistralai/mistral-7b-instruct:free"
+      - key: LLM_TIMEOUT
+        value: "30"
+      - key: OLLAMA_BASE_URL
+        value: "http://localhost:11434"
+      - key: OLLAMA_MODEL
+        value: "llama3" 

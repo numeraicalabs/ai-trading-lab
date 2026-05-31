@@ -1,6 +1,8 @@
+import { useAuth } from './AuthGate'
 import { C } from './UI'
 
 export function TopBar({ page, onNav, connected, prices, navItems = [], health = null }) {
+  const { user, signOut } = useAuth ? useAuth() : { user:null, signOut:null }
   const tickers = Object.entries(prices || {}).slice(0, 10)
 
   return (
@@ -61,6 +63,19 @@ export function TopBar({ page, onNav, connected, prices, navItems = [], health =
                         borderRadius: 6, padding: '3px 8px', fontSize: 10, color: C.green, fontWeight: 700 }}>
             MARKET OPEN
           </div>
+          {user && user.email && (
+            <div style={{ display:'flex', alignItems:'center', gap:6,
+              padding:'3px 9px', borderRadius:6, background:C.surface,
+              border:`1px solid ${C.border}`, cursor:'pointer' }}
+              onClick={signOut} title="Sign out">
+              <div style={{ width:18, height:18, borderRadius:'50%', fontSize:10,
+                background:`${C.accent}33`, border:`1px solid ${C.accent}44`,
+                display:'flex', alignItems:'center', justifyContent:'center', color:C.accent }}>
+                {user.email[0].toUpperCase()}
+              </div>
+              <span style={{ fontSize:10, color:C.muted }}>{user.email.split('@')[0]}</span>
+            </div>
+          )}
         </div>
       </nav>
     </>
