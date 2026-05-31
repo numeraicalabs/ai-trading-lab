@@ -362,6 +362,22 @@ class TrainMultiIn(BaseModel):
 #  API ROUTES  ← must all be defined BEFORE the static file mount
 # ══════════════════════════════════════════════════════════════════════════════
 
+@app.get("/api/config")
+def api_config():
+    """
+    Expose public Supabase config to the frontend.
+    The anon/public key is SAFE to expose — it's designed for client-side use.
+    This removes the need for VITE_SUPABASE_URL / VITE_SUPABASE_ANON build-time vars.
+    """
+    import os
+    url  = os.getenv("SUPABASE_URL",  "")
+    anon = os.getenv("SUPABASE_KEY",  "")   # anon/public key
+    return {
+        "supabase_url":  url,
+        "supabase_anon": anon,
+        "has_supabase":  bool(url and anon and "YOUR_PROJECT" not in url),
+    }
+
 @app.get("/health")
 async def health():
     return {"status": "ok", "version": "5.0.0",
