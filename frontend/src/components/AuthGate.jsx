@@ -26,9 +26,18 @@ let _sb = null
 
 function getSupabaseClient() {
   if (_sb) return _sb
-  const url  = window.__SUPABASE_URL__  || import.meta.env?.VITE_SUPABASE_URL  || ''
-  const anon = window.__SUPABASE_ANON__ || import.meta.env?.VITE_SUPABASE_ANON || ''
-  if (!url || !anon) return null
+
+  // window.__SUPABASE_URL__ is set by index.html at build time via %VITE_SUPABASE_URL%
+  // Fallback: import.meta.env works when running locally with .env file
+  const url  = (window.__SUPABASE_URL__  || import.meta.env?.VITE_SUPABASE_URL  || '').trim()
+  const anon = (window.__SUPABASE_ANON__ || import.meta.env?.VITE_SUPABASE_ANON || '').trim()
+
+  // Detect unreplaced Vite tokens (build happened without the env vars set)
+  if (!url || url === '%VITE_SUPABASE_URL%' ||
+      !anon || anon === '%VITE_SUPABASE_ANON%') {
+    return null
+  }
+
   try {
     const { createClient } = window.supabase || {}
     if (createClient) {
@@ -56,7 +65,11 @@ function LoginForm({ onSkip }) {
     setLoading(true); setError('')
     const sb = getSupabaseClient()
     if (!sb) {
-      setError('Supabase not configured — add VITE_SUPABASE_URL and VITE_SUPABASE_ANON to env vars')
+      setError(
+        'Supabase not configured. ' +
+        'Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON in Render → Environment, ' +
+        'then redeploy (new deploy needed for build-time vars).'
+      )
       setLoading(false)
       return
     }
