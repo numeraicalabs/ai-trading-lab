@@ -52,27 +52,30 @@ export function useToastSystem(lastMessage) {
     if (ttl > 0) setTimeout(() => dismiss(id), ttl)
   }, [dismiss])
 
-  // Listen to WS messages
+  // Listen to WS messages — null-safe
   useEffect(() => {
-    if (!lastMessage) return
-    const m = lastMessage
-    if (m.type === 'notification') {
-      add({
-        level:      m.level || 'info',
-        event_type: m.event_type,
-        title:      m.title,
-        message:    m.message,
-        data:       m.data,
-      })
-    }
-    // Inline events from tick
-    if (m.type === 'tick' && m.portfolio?.global_stop) {
-      add({
-        level:      'critical',
-        event_type: 'global_stop',
-        title:      '🚨 GLOBAL STOP ACTIVE',
-        message:    'Portfolio drawdown limit reached — new orders blocked',
-      })
+    if (!lastMessage || typeof lastMessage !== 'object') return
+    try {
+      const m = lastMessage
+      if (m.type === 'notification') {
+        add({
+          level:      m.level || 'info',
+          event_type: m.event_type,
+          title:      m.title,
+          message:    m.message,
+          data:       m.data,
+        })
+      }
+      if (m.type === 'tick' && m.portfolio?.global_stop) {
+        add({
+          level:      'critical',
+          event_type: 'global_stop',
+          title:      '🚨 GLOBAL STOP ACTIVE',
+          message:    'Portfolio drawdown limit reached — new orders blocked',
+        })
+      }
+    } catch (e) {
+      console.warn('useToastSystem error:', e)
     }
   }, [lastMessage, add])
 

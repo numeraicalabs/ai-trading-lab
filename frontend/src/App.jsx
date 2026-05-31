@@ -28,7 +28,13 @@ import ScoutPage           from './pages/ScoutPage'
 // Network page
 import NetworkPage         from './pages/NetworkPage'
 // Hooks & data
+import DashboardPage       from './pages/DashboardPage'
+import TradeRepositoryPage from './pages/TradeRepositoryPage'
+import TradingModePage      from './pages/TradingModePage'
+import PriceDataPage        from './pages/PriceDataPage'
 import { useWebSocket }    from './hooks/useWebSocket'
+import { useToastSystem, ToastContainer } from './components/ToastNotifications'
+import { ErrorBoundary }   from './components/ErrorBoundary'
 import { useAgents }       from './hooks/useAgents'
 import api                 from './lib/api'
 import { FALLBACK_PORTFOLIO, FALLBACK_PRICES } from './lib/fallback'
